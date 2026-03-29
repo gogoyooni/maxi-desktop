@@ -6,6 +6,7 @@ const os = require('node:os');
 const { spawn } = require('child_process');
 const vm = require('vm');
 const nodePty = require('node-pty');
+const { Client } = require('ssh2');
 
 if (require('electron-squirrel-startup')) {
   app.quit();
@@ -53,6 +54,11 @@ app.on('window-all-closed', () => {
 
 const MAXI_TOKENS_PATH = path.join(process.env.HOME || process.env.USERPROFILE, '.maxi', 'tokens');
 const MAXI_SKILLS_PATH = path.join(process.env.HOME || process.env.USERPROFILE, '.maxi', 'skills');
+const MAXI_SSH_CONFIG_PATH = path.join(process.env.HOME || process.env.USERPROFILE, '.maxi', 'ssh-config.json');
+
+let sshClient = null;
+let currentSshConnection = null;
+let sshShell = null;
 
 function loadDirectoryContents(dirPath) {
   try {
@@ -83,6 +89,158 @@ ipcMain.handle('load-tokens', () => {
 
 ipcMain.handle('load-skills', () => {
   return loadDirectoryContents(MAXI_SKILLS_PATH);
+});
+
+function loadSshConfig() {
+  try {
+    if (!fs.existsSync(MAXI_SSH_CONFIG_PATH)) {
+      return [];
+    }
+    const data = fs.readFileSync(MAXI_SSH_CONFIG_PATH, 'utf-8');
+    return JSON.parse(data);
+  } catch (error) {
+    console.error('Error loading SSH config:', error);
+    return [];
+  }
+}
+
+function saveSshConfig(config) {
+  try {
+    const dir = path.dirname(MAXI_SSH_CONFIG_PATH);
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true });
+    }
+    fs.writeFileSync(MAXI_SSH_CONFIG_PATH, JSON.stringify(config, null, 2));
+    return true;
+  } catch (error) {
+    console.error('Error saving SSH config:', error);
+    return false;
+  }
+}
+
+ipcMain.handle('ssh-load-connections', () => {
+  return loadSshConfig();
+});
+
+ipcMain.handle('ssh-save-connection', (event, connection) => {
+  const config = loadSshConfig();
+  const existingIndex = config.findIndex(c => c.id === connection.id);
+  if (existingIndex >= 0) {
+    config[existingIndex] = connection;
+  } else {
+    connection.id = Date.now().toString();
+    config.push(connection);
+  }
+  return saveSshConfig(config);
+});
+
+ipcMain.handle('ssh-delete-connection', (event, connectionId) => {
+  const config = loadSshConfig();
+  const filtered = config.filter(c => c.id !== connectionId);
+  return saveSshConfig(filtered);
+});
+
+ipcMain.handle('ssh-connect', async (event, connection) => {
+  return new Promise((resolve, reject) => {
+    if (sshClient) {
+      sshClient.end();
+      sshClient = null;
+    }
+
+    sshClient = new Client();
+
+    const connectionConfig = {
+      host: connection.host,
+      port: connection.port || 22,
+      username: connection.username,
+      readyTimeout: 30000,
+    };
+
+    if (connection.authMethod === 'password') {
+      connectionConfig.password = connection.password;
+    } else {
+      try {
+        connectionConfig.privateKey = fs.readFileSync(connection.privateKey);
+        if (connection.passphrase) {
+          connectionConfig.passphrase = connection.passphrase;
+        }
+      } catch (err) {
+        reject(new Error('Failed to read private key: ' + err.message));
+        return;
+      }
+    }
+
+    sshClient.on('ready', () => {
+      currentSshConnection = connection;
+      sshClient.shell((err, stream) => {
+        if (err) {
+          reject(err);
+          return;
+        }
+        sshShell = stream;
+        stream.on('data', (data) => {
+          mainWindow.webContents.send('ssh-data', data.toString('utf-8'));
+        });
+        stream.on('close', () => {
+          mainWindow.webContents.send('ssh-close');
+          sshShell = null;
+          if (sshClient) {
+            sshClient.end();
+            sshClient = null;
+          }
+          currentSshConnection = null;
+        });
+        resolve({ success: true });
+      });
+    });
+
+    sshClient.on('error', (err) => {
+      console.error('SSH connection error:', err);
+      mainWindow.webContents.send('ssh-error', err.message);
+      reject(err);
+    });
+
+    sshClient.on('close', () => {
+      mainWindow.webContents.send('ssh-close');
+      sshShell = null;
+      currentSshConnection = null;
+    });
+
+    sshClient.connect(connectionConfig);
+  });
+});
+
+ipcMain.handle('ssh-write', (event, data) => {
+  if (sshShell) {
+    sshShell.write(data);
+    return true;
+  }
+  return false;
+});
+
+ipcMain.handle('ssh-disconnect', () => {
+  if (sshClient) {
+    sshClient.end();
+    sshClient = null;
+    sshShell = null;
+    currentSshConnection = null;
+    return true;
+  }
+  return false;
+});
+
+ipcMain.handle('ssh-select-key', async () => {
+  const result = await dialog.showOpenDialog(mainWindow, {
+    properties: ['openFile'],
+    title: 'Select Private Key',
+    filters: [
+      { name: 'All Files', extensions: ['*'] }
+    ]
+  });
+  if (result.canceled) {
+    return null;
+  }
+  return result.filePaths[0];
 });
 
 ipcMain.handle('get-home-path', () => {

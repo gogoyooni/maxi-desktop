@@ -16,6 +16,14 @@ contextBridge.exposeInMainWorld('maxi', {
   resizeTerminal: (options) => ipcRenderer.invoke('resize-terminal', options),
   killTerminal: () => ipcRenderer.invoke('kill-terminal'),
   
+  sshLoadConnections: () => ipcRenderer.invoke('ssh-load-connections'),
+  sshSaveConnection: (connection) => ipcRenderer.invoke('ssh-save-connection', connection),
+  sshDeleteConnection: (id) => ipcRenderer.invoke('ssh-delete-connection', id),
+  sshConnect: (connection) => ipcRenderer.invoke('ssh-connect', connection),
+  sshWrite: (data) => ipcRenderer.invoke('ssh-write', data),
+  sshDisconnect: () => ipcRenderer.invoke('ssh-disconnect'),
+  sshSelectKey: () => ipcRenderer.invoke('ssh-select-key'),
+  
   onChatStream: (callback) => {
     ipcRenderer.on('chat-stream', (_, content) => callback(content));
   },
@@ -33,6 +41,15 @@ contextBridge.exposeInMainWorld('maxi', {
   },
   onTerminalExit: (callback) => {
     ipcRenderer.on('terminal-exit', (_, exitCode) => callback(exitCode));
+  },
+  onSshData: (callback) => {
+    ipcRenderer.on('ssh-data', (_, data) => callback(data));
+  },
+  onSshClose: (callback) => {
+    ipcRenderer.on('ssh-close', () => callback());
+  },
+  onSshError: (callback) => {
+    ipcRenderer.on('ssh-error', (_, err) => callback(err));
   },
   
   removeAllListeners: (channel) => {

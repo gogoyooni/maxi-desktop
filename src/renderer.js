@@ -89,6 +89,13 @@ let currentCommand = '';
 let terminalHeight = 200;
 let isResizing = false;
 
+let sshConnections = [];
+let currentSshConnection = null;
+let sshTerminal = null;
+let sshTerminalFitAddon = null;
+let sshConnected = false;
+let sshEditingId = null;
+
 function initSpeechRecognition() {
   const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
   if (!SpeechRecognition) {
@@ -1028,18 +1035,20 @@ sidebarTabs.forEach(tab => {
     sidebarPanels.forEach(p => {
       p.classList.toggle('active', p.id === `${tabName}-panel`);
     });
-    if (tabName === 'terminal' && !terminalInitialized) {
-      setTimeout(initTerminal, 100);
-    }
-    if (tabName === 'terminal' && terminalFitAddon) {
-      setTimeout(() => {
-        terminalFitAddon.fit();
-        const dimensions = terminalFitAddon.proposeDimensions();
-        if (dimensions) {
-          terminal.resize(dimensions.cols, dimensions.rows);
-          window.maxi.resizeTerminal({ cols: dimensions.cols, rows: dimensions.rows });
-        }
-      }, 150);
+    if (tabName === 'terminal' && !sshConnected) {
+      if (!terminalInitialized) {
+        setTimeout(initTerminal, 100);
+      }
+      if (terminalFitAddon) {
+        setTimeout(() => {
+          terminalFitAddon.fit();
+          const dimensions = terminalFitAddon.proposeDimensions();
+          if (dimensions) {
+            terminal.resize(dimensions.cols, dimensions.rows);
+            window.maxi.resizeTerminal({ cols: dimensions.cols, rows: dimensions.rows });
+          }
+        }, 150);
+      }
     }
   });
 });
@@ -1609,7 +1618,426 @@ refreshFiles.addEventListener('click', () => {
   loadWorkspaceFiles();
 });
 
-initTheme();
+const sshPanel = document.getElementById('ssh-panel');
+const sshConnectionList = document.getElementById('ssh-connection-list');
+const sshAddBtn = document.getElementById('ssh-add-btn');
+const sshModal = document.getElementById('ssh-modal');
+const closeSshModal = document.getElementById('close-ssh-modal');
+const sshNameInput = document.getElementById('ssh-name');
+const sshHostInput = document.getElementById('ssh-host');
+const sshPortInput = document.getElementById('ssh-port');
+const sshUsernameInput = document.getElementById('ssh-username');
+const sshPasswordInput = document.getElementById('ssh-password');
+const sshPrivateKeyInput = document.getElementById('ssh-private-key');
+const sshPassphraseInput = document.getElementById('ssh-passphrase');
+const sshSaveBtn = document.getElementById('ssh-save-btn');
+const sshTestBtn = document.getElementById('ssh-test-btn');
+const sshBrowseKeyBtn = document.getElementById('ssh-browse-key');
+const sshKeyInput = document.getElementById('ssh-key-input');
+const sshPasswordGroup = document.getElementById('ssh-password-group');
+const sshKeyGroup = document.getElementById('ssh-key-group');
+const sshPassphraseGroup = document.getElementById('ssh-passphrase-group');
+const sshModalTitle = document.getElementById('ssh-modal-title');
+
+const terminalContainer = document.getElementById('terminal-container');
+
+function renderSshConnections() {
+  if (sshConnections.length === 0) {
+    sshConnectionList.innerHTML = `
+      <div class="ssh-empty-state">
+        <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+          <rect x="2" y="3" width="20" height="14" rx="2" ry="2"/>
+          <line x1="8" y1="21" x2="16" y2="21"/>
+          <line x1="12" y1="17" x2="12" y2="21"/>
+        </svg>
+        <p>No SSH connections configured</p>
+        <button class="btn primary" id="ssh-add-first-btn">Add Connection</button>
+      </div>
+    `;
+    document.getElementById('ssh-add-first-btn')?.addEventListener('click', openSshModal);
+    return;
+  }
+
+  sshConnectionList.innerHTML = sshConnections.map(conn => `
+    <div class="ssh-connection-item ${conn.id === currentSshConnection?.id ? 'active' : ''} ${conn.status || 'disconnected'}" data-id="${conn.id}">
+      <span class="ssh-status-dot ${conn.status || 'disconnected'}"></span>
+      <div class="ssh-connection-info">
+        <div class="ssh-connection-name">${escapeHtml(conn.name)}</div>
+        <div class="ssh-connection-host">${escapeHtml(conn.username)}@${escapeHtml(conn.host)}:${conn.port || 22}</div>
+      </div>
+      <div class="ssh-connection-actions">
+        ${conn.status === 'connected' ? `
+          <button class="ssh-action-btn disconnect" title="Disconnect">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <line x1="18" y1="6" x2="6" y2="18"/>
+              <line x1="6" y1="6" x2="18" y2="18"/>
+            </svg>
+          </button>
+        ` : `
+          <button class="ssh-action-btn connect" title="Connect">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <polygon points="5 3 19 12 5 21 5 3"/>
+            </svg>
+          </button>
+        `}
+        <button class="ssh-action-btn edit" title="Edit">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
+            <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
+          </svg>
+        </button>
+        <button class="ssh-action-btn delete" title="Delete">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <polyline points="3 6 5 6 21 6"/>
+            <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
+          </svg>
+        </button>
+      </div>
+    </div>
+  `).join('') + `
+    <div class="ssh-add-connection" id="ssh-add-another">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <line x1="12" y1="5" x2="12" y2="19"/>
+        <line x1="5" y1="12" x2="19" y2="12"/>
+      </svg>
+      Add New
+    </div>
+  `;
+
+  document.getElementById('ssh-add-another')?.addEventListener('click', () => openSshModal());
+
+  sshConnectionList.querySelectorAll('.ssh-connection-item').forEach(item => {
+    const connId = item.dataset.id;
+    const conn = sshConnections.find(c => c.id === connId);
+
+    item.querySelector('.connect')?.addEventListener('click', (e) => {
+      e.stopPropagation();
+      connectSsh(conn);
+    });
+
+    item.querySelector('.disconnect')?.addEventListener('click', (e) => {
+      e.stopPropagation();
+      disconnectSsh();
+    });
+
+    item.querySelector('.edit')?.addEventListener('click', (e) => {
+      e.stopPropagation();
+      editSshConnection(conn);
+    });
+
+    item.querySelector('.delete')?.addEventListener('click', (e) => {
+      e.stopPropagation();
+      deleteSshConnection(connId);
+    });
+  });
+}
+
+async function loadSshConnections() {
+  try {
+    sshConnections = await window.maxi.sshLoadConnections();
+    renderSshConnections();
+  } catch (error) {
+    console.error('Failed to load SSH connections:', error);
+  }
+}
+
+function openSshModal(connection = null) {
+  sshEditingId = connection?.id || null;
+  sshModalTitle.textContent = connection ? 'Edit SSH Connection' : 'Add SSH Connection';
+  sshNameInput.value = connection?.name || '';
+  sshHostInput.value = connection?.host || '';
+  sshPortInput.value = connection?.port || 22;
+  sshUsernameInput.value = connection?.username || '';
+  sshPasswordInput.value = connection?.password || '';
+  sshPrivateKeyInput.value = connection?.privateKey || '';
+  sshPassphraseInput.value = connection?.passphrase || '';
+
+  const authMethod = connection?.authMethod || 'password';
+  document.querySelectorAll('input[name="ssh-auth"]').forEach(input => {
+    input.checked = input.value === authMethod;
+  });
+  updateAuthFields(authMethod);
+
+  sshModal.classList.remove('hidden');
+}
+
+function closeSshModalFn() {
+  sshModal.classList.add('hidden');
+  sshEditingId = null;
+}
+
+function updateAuthFields(method) {
+  if (method === 'password') {
+    sshPasswordGroup.classList.remove('hidden');
+    sshKeyGroup.classList.add('hidden');
+    sshPassphraseGroup.classList.add('hidden');
+  } else {
+    sshPasswordGroup.classList.add('hidden');
+    sshKeyGroup.classList.remove('hidden');
+    sshPassphraseGroup.classList.remove('hidden');
+  }
+}
+
+document.querySelectorAll('input[name="ssh-auth"]').forEach(input => {
+  input.addEventListener('change', (e) => {
+    updateAuthFields(e.target.value);
+  });
+});
+
+sshBrowseKeyBtn.addEventListener('click', async () => {
+  const keyPath = await window.maxi.sshSelectKey();
+  if (keyPath) {
+    sshPrivateKeyInput.value = keyPath;
+  }
+});
+
+sshAddBtn.addEventListener('click', () => openSshModal());
+closeSshModal.addEventListener('click', closeSshModalFn);
+sshModal.querySelector('.modal-backdrop').addEventListener('click', closeSshModalFn);
+
+sshSaveBtn.addEventListener('click', async () => {
+  const name = sshNameInput.value.trim();
+  const host = sshHostInput.value.trim();
+  const port = parseInt(sshPortInput.value) || 22;
+  const username = sshUsernameInput.value.trim();
+  const authMethod = document.querySelector('input[name="ssh-auth"]:checked').value;
+
+  if (!name || !host || !username) {
+    showToast('Please fill in all required fields', 'error');
+    return;
+  }
+
+  const connection = {
+    id: sshEditingId,
+    name,
+    host,
+    port,
+    username,
+    authMethod,
+  };
+
+  if (authMethod === 'password') {
+    connection.password = sshPasswordInput.value;
+  } else {
+    connection.privateKey = sshPrivateKeyInput.value;
+    connection.passphrase = sshPassphraseInput.value;
+  }
+
+  try {
+    await window.maxi.sshSaveConnection(connection);
+    await loadSshConnections();
+    closeSshModalFn();
+    showToast('Connection saved', 'success');
+  } catch (error) {
+    showToast('Failed to save connection: ' + error.message, 'error');
+  }
+});
+
+sshTestBtn.addEventListener('click', async () => {
+  const host = sshHostInput.value.trim();
+  const port = parseInt(sshPortInput.value) || 22;
+  const username = sshUsernameInput.value.trim();
+  const authMethod = document.querySelector('input[name="ssh-auth"]:checked').value;
+
+  if (!host || !username) {
+    showToast('Please fill in host, port, and username', 'error');
+    return;
+  }
+
+  sshTestBtn.disabled = true;
+  sshTestBtn.textContent = 'Testing...';
+
+  const testConnection = {
+    host,
+    port,
+    username,
+    authMethod,
+  };
+
+  if (authMethod === 'password') {
+    testConnection.password = sshPasswordInput.value;
+  } else {
+    testConnection.privateKey = sshPrivateKeyInput.value;
+    testConnection.passphrase = sshPassphraseInput.value;
+  }
+
+  try {
+    await window.maxi.sshConnect(testConnection);
+    await window.maxi.sshDisconnect();
+    showToast('Connection successful!', 'success');
+  } catch (error) {
+    showToast('Connection failed: ' + error.message, 'error');
+  } finally {
+    sshTestBtn.disabled = false;
+    sshTestBtn.textContent = 'Test Connection';
+  }
+});
+
+async function connectSsh(connection) {
+  const connIndex = sshConnections.findIndex(c => c.id === connection.id);
+  if (connIndex >= 0) {
+    sshConnections[connIndex].status = 'connecting';
+    renderSshConnections();
+  }
+
+  try {
+    await window.maxi.sshConnect(connection);
+    currentSshConnection = connection;
+    if (connIndex >= 0) {
+      sshConnections[connIndex].status = 'connected';
+    }
+    sshConnected = true;
+    sshPanel.classList.add('ssh-connected');
+    renderSshConnections();
+    initSshTerminal();
+    showToast('Connected to ' + connection.name, 'success');
+  } catch (error) {
+    if (connIndex >= 0) {
+      sshConnections[connIndex].status = 'error';
+    }
+    renderSshConnections();
+    showToast('Connection failed: ' + error.message, 'error');
+  }
+}
+
+async function disconnectSsh() {
+  try {
+    await window.maxi.sshDisconnect();
+  } catch (error) {
+    console.error('Disconnect error:', error);
+  }
+  currentSshConnection = null;
+  sshConnected = false;
+  sshPanel.classList.remove('ssh-connected');
+  if (sshTerminal) {
+    sshTerminal.dispose();
+    sshTerminal = null;
+  }
+  sshConnections.forEach(c => c.status = 'disconnected');
+  renderSshConnections();
+  showToast('Disconnected', 'info');
+}
+
+function editSshConnection(connection) {
+  openSshModal(connection);
+}
+
+async function deleteSshConnection(connectionId) {
+  if (!confirm('Are you sure you want to delete this connection?')) {
+    return;
+  }
+  try {
+    await window.maxi.sshDeleteConnection(connectionId);
+    await loadSshConnections();
+    showToast('Connection deleted', 'success');
+  } catch (error) {
+    showToast('Failed to delete connection: ' + error.message, 'error');
+  }
+}
+
+function initSshTerminal() {
+  if (sshTerminal) {
+    sshTerminal.dispose();
+  }
+
+  const wrapper = document.getElementById('ssh-terminal-wrapper');
+  const container = document.getElementById('ssh-terminal-container');
+  
+  wrapper.style.display = 'flex';
+  container.innerHTML = '';
+  
+  sshTerminal = new Terminal({
+    cursorBlink: true,
+    cursorStyle: 'block',
+    fontFamily: "'Fira Code', Consolas, Monaco, monospace",
+    fontSize: 13,
+    theme: {
+      background: '#0d1117',
+      foreground: '#e0e0e0',
+      cursor: '#39d353',
+      cursorAccent: '#0d1117',
+      selection: 'rgba(57, 211, 83, 0.3)',
+      black: '#0d1117',
+      red: '#ff7b72',
+      green: '#39d353',
+      yellow: '#d29922',
+      blue: '#58a6ff',
+      magenta: '#bc8cff',
+      cyan: '#39c5cf',
+      white: '#e0e0e0',
+      brightBlack: '#6e7681',
+      brightRed: '#ffa198',
+      brightGreen: '#56d364',
+      brightYellow: '#e3b341',
+      brightBlue: '#79c0ff',
+      brightMagenta: '#d2a8ff',
+      brightCyan: '#56d4dd',
+      brightWhite: '#ffffff'
+    },
+    scrollback: 1000,
+    allowProposedApi: true
+  });
+
+  sshTerminalFitAddon = new FitAddon();
+  const webLinksAddon = new WebLinksAddon();
+
+  sshTerminal.loadAddon(sshTerminalFitAddon);
+  sshTerminal.loadAddon(webLinksAddon);
+
+  container.innerHTML = '';
+
+  const header = document.createElement('div');
+  header.className = 'ssh-terminal-header';
+  header.innerHTML = `
+    <div class="ssh-terminal-info">
+      <span class="status-dot connected"></span>
+      <span>${escapeHtml(currentSshConnection?.username)}@${escapeHtml(currentSshConnection?.host)}:${currentSshConnection?.port || 22}</span>
+    </div>
+    <button class="ssh-disconnect-btn" id="ssh-disconnect-btn">
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <line x1="18" y1="6" x2="6" y2="18"/>
+        <line x1="6" y1="6" x2="18" y2="18"/>
+      </svg>
+      Disconnect
+    </button>
+  `;
+  container.appendChild(header);
+
+  const terminalEl = document.createElement('div');
+  terminalEl.style.flex = '1';
+  terminalEl.style.padding = '0.5rem';
+  container.appendChild(terminalEl);
+
+  sshTerminal.open(terminalEl);
+  sshTerminalFitAddon.fit();
+
+  sshTerminal.onData((data) => {
+    window.maxi.sshWrite(data);
+  });
+
+  sshTerminal.onResize(({ cols, rows }) => {
+  });
+
+  document.getElementById('ssh-disconnect-btn').addEventListener('click', disconnectSsh);
+
+  window.maxi.onSshData((data) => {
+    if (sshTerminal) {
+      sshTerminal.write(data);
+    }
+  });
+
+  window.maxi.onSshClose(() => {
+    if (sshConnected) {
+      disconnectSsh();
+    }
+  });
+
+  window.maxi.onSshError((error) => {
+    showToast('SSH Error: ' + error, 'error');
+  });
+}
+
+loadSshConnections();
 loadTokens();
 loadSkills();
 loadWorkspaceFiles();
