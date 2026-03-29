@@ -74,11 +74,11 @@
 - [x] Share conversation link
 
 ### Low Priority
-- [ ] Plugin system
-- [ ] Theme marketplace
+- [x] Plugin system
+- [x] Theme marketplace (basic)
 - [ ] Mobile companion app
-- [ ] Team collaboration
-- [ ] AI model comparison tool
+- [x] Team collaboration
+- [x] AI model comparison tool
 
 ---
 
