@@ -79,6 +79,14 @@
             <path d="M6 8h.001M10 8h.001M14 8h.001M18 8h.001M8 12h.001M12 12h.001M16 12h.001M6 16h12"/>
           </svg>
         </button>
+        <button id="compare-btn" class="icon-btn" title="Compare Models">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <rect x="3" y="3" width="7" height="7"/>
+            <rect x="14" y="3" width="7" height="7"/>
+            <rect x="14" y="14" width="7" height="7"/>
+            <rect x="3" y="14" width="7" height="7"/>
+          </svg>
+        </button>
       </div>
     </header>
 
@@ -822,6 +830,61 @@
         <div class="modal-footer">
           <button id="plugin-permissions-cancel" class="btn secondary">Cancel</button>
           <button id="plugin-permissions-grant" class="btn primary">Grant Permissions</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="compare-modal" class="modal hidden">
+      <div class="modal-backdrop"></div>
+      <div class="modal-content compare-modal-content">
+        <div class="modal-header">
+          <h2>Model Comparison</h2>
+          <button id="close-compare" class="icon-btn">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <line x1="18" y1="6" x2="6" y2="18"/>
+              <line x1="6" y1="6" x2="18" y2="18"/>
+            </svg>
+          </button>
+        </div>
+        <div class="modal-body">
+          <div class="compare-section">
+            <label class="compare-label">Select Models:</label>
+            <div class="compare-models">
+              <label class="compare-checkbox">
+                <input type="checkbox" value="MiniMax-M2.7" checked>
+                <span>MiniMax-M2.7</span>
+              </label>
+              <label class="compare-checkbox">
+                <input type="checkbox" value="MiniMax-M2.5" checked>
+                <span>MiniMax-M2.5</span>
+              </label>
+              <label class="compare-checkbox">
+                <input type="checkbox" value="MiniMax-M2.7-highspeed">
+                <span>MiniMax-M2.7-highspeed</span>
+              </label>
+              <label class="compare-checkbox">
+                <input type="checkbox" value="MiniMax-M2.5-highspeed">
+                <span>MiniMax-M2.5-highspeed</span>
+              </label>
+            </div>
+          </div>
+          <div class="compare-section">
+            <label class="compare-label">Prompt:</label>
+            <textarea id="compare-prompt" class="compare-prompt-input" placeholder="Enter your prompt to compare across models..."></textarea>
+          </div>
+          <button id="run-compare" class="btn primary compare-run-btn">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <polygon points="5 3 19 12 5 21 5 3"/>
+            </svg>
+            Compare Models
+          </button>
+        </div>
+        <div class="compare-results hidden" id="compare-results">
+          <div class="compare-results-header">
+            <h3>Results</h3>
+            <button id="clear-compare" class="btn secondary small">Clear</button>
+          </div>
+          <div class="compare-results-grid" id="compare-results-grid"></div>
         </div>
       </div>
     </div>

@@ -4094,3 +4094,236 @@ document.querySelectorAll('.sidebar-tab').forEach(tab => {
 });
 
 initTeam();
+
+const compareBtn = document.getElementById('compare-btn');
+const compareModal = document.getElementById('compare-modal');
+const closeCompareBtn = document.getElementById('close-compare');
+const comparePrompt = document.getElementById('compare-prompt');
+const runCompareBtn = document.getElementById('run-compare');
+const compareResults = document.getElementById('compare-results');
+const compareResultsGrid = document.getElementById('compare-results-grid');
+const clearCompareBtn = document.getElementById('clear-compare');
+
+let isComparing = false;
+
+compareBtn?.addEventListener('click', () => {
+  compareModal.classList.remove('hidden');
+});
+
+closeCompareBtn?.addEventListener('click', () => {
+  compareModal.classList.add('hidden');
+});
+
+compareModal?.querySelector('.modal-backdrop').addEventListener('click', () => {
+  compareModal.classList.add('hidden');
+});
+
+clearCompareBtn?.addEventListener('click', () => {
+  compareResultsGrid.innerHTML = '';
+  compareResults.classList.add('hidden');
+});
+
+runCompareBtn?.addEventListener('click', runModelComparison);
+
+async function runModelComparison() {
+  if (isComparing) return;
+  
+  const selectedModels = Array.from(compareModal.querySelectorAll('.compare-checkbox input:checked'))
+    .map(input => input.value);
+  
+  const prompt = comparePrompt.value.trim();
+  
+  if (selectedModels.length === 0) {
+    showToast('Please select at least one model', 'warning');
+    return;
+  }
+  
+  if (!prompt) {
+    showToast('Please enter a prompt', 'warning');
+    return;
+  }
+  
+  if (!currentApiKey) {
+    showToast('No API token available. Please configure your API key in Settings.', 'error');
+    return;
+  }
+  
+  isComparing = true;
+  runCompareBtn.disabled = true;
+  runCompareBtn.innerHTML = `
+    <span class="compare-loading-dots"><span></span><span></span><span></span></span>
+    Comparing...
+  `;
+  
+  compareResults.classList.remove('hidden');
+  compareResultsGrid.innerHTML = selectedModels.map(model => createCompareResultCard(model)).join('');
+  
+  const results = {};
+  
+  for (const model of selectedModels) {
+    const card = document.querySelector(`[data-model="${model}"]`);
+    const statusEl = card?.querySelector('.compare-result-status');
+    const bodyEl = card?.querySelector('.compare-result-body');
+    const metricsEl = card?.querySelector('.compare-result-metrics');
+    
+    try {
+      if (statusEl) {
+        statusEl.className = 'compare-result-status loading';
+        statusEl.innerHTML = '<span class="compare-loading-dots"><span></span><span></span><span></span></span> Loading...';
+      }
+      
+      const startTime = Date.now();
+      let fullResponse = '';
+      let tokenCount = 0;
+      
+      await window.maxi.streamChat({
+        messages: [{ role: 'user', content: prompt }],
+        apiKey: currentApiKey,
+        model: model
+      });
+      
+      await new Promise((resolve, reject) => {
+        const timeout = setTimeout(() => {
+          reject(new Error('Response timeout'));
+        }, 120000);
+        
+        window.maxi.onChatStream((content) => {
+          fullResponse += content;
+          if (bodyEl) {
+            bodyEl.innerHTML = `<div class="compare-result-response">${escapeHtml(fullResponse)}</div>`;
+            bodyEl.scrollTop = bodyEl.scrollHeight;
+          }
+        });
+        
+        window.maxi.onChatComplete(() => {
+          clearTimeout(timeout);
+          resolve();
+        });
+        
+        window.maxi.onChatError((error) => {
+          clearTimeout(timeout);
+          reject(error);
+        });
+        
+        window.maxi.onTokenUsage((data) => {
+          tokenCount = data.output || fullResponse.length;
+        });
+      });
+      
+      const endTime = Date.now();
+      const duration = endTime - startTime;
+      
+      results[model] = {
+        response: fullResponse,
+        time: duration,
+        tokens: tokenCount || Math.ceil(fullResponse.length / 4),
+        length: fullResponse.length
+      };
+      
+      if (statusEl) {
+        statusEl.className = 'compare-result-status success';
+        statusEl.innerHTML = '✓ Complete';
+      }
+      
+      if (metricsEl) {
+        metricsEl.innerHTML = `
+          <div class="compare-metric">
+            <span class="compare-metric-label">Time</span>
+            <span class="compare-metric-value">${(duration / 1000).toFixed(2)}s</span>
+          </div>
+          <div class="compare-metric">
+            <span class="compare-metric-label">Tokens</span>
+            <span class="compare-metric-value">${results[model].tokens}</span>
+          </div>
+          <div class="compare-metric">
+            <span class="compare-metric-label">Length</span>
+            <span class="compare-metric-value">${results[model].length} chars</span>
+          </div>
+          <div class="compare-metric">
+            <span class="compare-metric-label">Quality</span>
+            <span class="compare-metric-value">${calculateQualityScore(results[model])}</span>
+          </div>
+        `;
+      }
+      
+    } catch (error) {
+      console.error(`Error comparing model ${model}:`, error);
+      
+      if (statusEl) {
+        statusEl.className = 'compare-result-status error';
+        statusEl.innerHTML = '✗ Failed';
+      }
+      
+      if (bodyEl) {
+        bodyEl.innerHTML = `<div class="compare-result-response" style="color: var(--error);">Error: ${escapeHtml(error.message || 'Failed to get response')}</div>`;
+      }
+      
+      results[model] = {
+        error: true,
+        message: error.message
+      };
+    }
+  }
+  
+  isComparing = false;
+  runCompareBtn.disabled = false;
+  runCompareBtn.innerHTML = `
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+      <polygon points="5 3 19 12 5 21 5 3"/>
+    </svg>
+    Compare Models
+  `;
+}
+
+function createCompareResultCard(model) {
+  return `
+    <div class="compare-result-card" data-model="${model}">
+      <div class="compare-result-header">
+        <span class="compare-result-model">${model}</span>
+        <span class="compare-result-status loading">
+          <span class="compare-loading-dots"><span></span><span></span><span></span></span>
+          Loading...
+        </span>
+      </div>
+      <div class="compare-result-body">
+        <div class="compare-loading">
+          <span class="compare-loading-dots"><span></span><span></span><span></span></span>
+          Waiting for response...
+        </div>
+      </div>
+      <div class="compare-result-metrics">
+        <div class="compare-metric">
+          <span class="compare-metric-label">Time</span>
+          <span class="compare-metric-value">-</span>
+        </div>
+        <div class="compare-metric">
+          <span class="compare-metric-label">Tokens</span>
+          <span class="compare-metric-value">-</span>
+        </div>
+        <div class="compare-metric">
+          <span class="compare-metric-label">Length</span>
+          <span class="compare-metric-value">-</span>
+        </div>
+        <div class="compare-metric">
+          <span class="compare-metric-label">Quality</span>
+          <span class="compare-metric-value">-</span>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function calculateQualityScore(result) {
+  if (result.error) return 'N/A';
+  
+  const lengthScore = Math.min(result.length / 500, 1) * 50;
+  const tokenEfficiency = result.tokens > 0 ? Math.min(result.tokens / result.length * 4, 1) * 30 : 0;
+  const speedScore = Math.max(0, (5000 - result.time) / 5000) * 20;
+  
+  const total = Math.round(lengthScore + tokenEfficiency + speedScore);
+  
+  if (total >= 80) return 'Excellent';
+  if (total >= 60) return 'Good';
+  if (total >= 40) return 'Fair';
+  return 'Basic';
+}
