@@ -104,6 +104,216 @@ let autoSaveInterval = null;
 let hasUnsavedChanges = false;
 let renamingChatId = null;
 
+const MAX_TABS = 10;
+
+let tabs = [];
+let activeTabId = null;
+let tabScrollPositions = {};
+let draggedTabId = null;
+
+function generateTabId() {
+  return 'tab_' + Math.random().toString(36).substr(2, 9);
+}
+
+function createTab(title = 'New Chat') {
+  if (tabs.length >= MAX_TABS) {
+    showToast(`Maximum ${MAX_TABS} tabs allowed`, 'warning');
+    return null;
+  }
+  
+  const tabId = generateTabId();
+  const tab = {
+    id: tabId,
+    title: title,
+    messages: [],
+    chatId: null,
+    hasUnsavedChanges: false,
+    scrollPosition: 0
+  };
+  
+  tabs.push(tab);
+  renderTabs();
+  switchToTab(tabId);
+  return tabId;
+}
+
+function closeTab(tabId) {
+  const tabIndex = tabs.findIndex(t => t.id === tabId);
+  if (tabIndex === -1) return;
+  
+  const tab = tabs[tabIndex];
+  
+  if (tab.hasUnsavedChanges || (tab.messages.length > 0 && !tab.chatId)) {
+    const shouldClose = confirm('You have unsaved changes. Close anyway?');
+    if (!shouldClose) return;
+  }
+  
+  tabs.splice(tabIndex, 1);
+  delete tabScrollPositions[tabId];
+  
+  if (tabs.length === 0) {
+    createTab('New Chat');
+  } else if (activeTabId === tabId) {
+    const newIndex = Math.min(tabIndex, tabs.length - 1);
+    switchToTab(tabs[newIndex].id);
+  }
+  
+  renderTabs();
+}
+
+function switchToTab(tabId) {
+  if (activeTabId === tabId) return;
+  
+  if (activeTabId) {
+    const currentTab = tabs.find(t => t.id === activeTabId);
+    if (currentTab) {
+      currentTab.scrollPosition = chatMessages.scrollTop;
+      currentTab.messages = messages;
+      currentTab.hasUnsavedChanges = hasUnsavedChanges;
+      if (messages.length > 0) {
+        const firstUserMsg = messages.find(m => m.role === 'user');
+        currentTab.title = firstUserMsg 
+          ? firstUserMsg.content.substring(0, 30) + (firstUserMsg.content.length > 30 ? '...' : '')
+          : 'New Chat';
+      }
+    }
+  }
+  
+  activeTabId = tabId;
+  const tab = tabs.find(t => t.id === tabId);
+  if (tab) {
+    messages = tab.messages || [];
+    hasUnsavedChanges = tab.hasUnsavedChanges || false;
+    currentChatId = tab.chatId;
+    
+    setTimeout(() => {
+      chatMessages.scrollTop = tab.scrollPosition || 0;
+    }, 0);
+    
+    renderMessages();
+  }
+  
+  renderTabs();
+}
+
+function updateActiveTabTitle() {
+  if (!activeTabId) return;
+  const tab = tabs.find(t => t.id === activeTabId);
+  if (tab && messages.length > 0) {
+    const firstUserMsg = messages.find(m => m.role === 'user');
+    if (firstUserMsg) {
+      tab.title = firstUserMsg.content.substring(0, 30) + (firstUserMsg.content.length > 30 ? '...' : '');
+      renderTabs();
+    }
+  }
+}
+
+function renderTabs() {
+  const tabList = document.getElementById('tab-list');
+  if (!tabList) return;
+  
+  tabList.innerHTML = tabs.map(tab => `
+    <div class="tab ${tab.id === activeTabId ? 'active' : ''}" 
+         data-id="${tab.id}"
+         draggable="true">
+      ${tab.hasUnsavedChanges ? '<span class="tab-unsaved"></span>' : ''}
+      <span class="tab-title">${escapeHtml(tab.title || 'New Chat')}</span>
+      <button class="tab-close" data-tab-id="${tab.id}" title="Close tab">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <line x1="18" y1="6" x2="6" y2="18"/>
+          <line x1="6" y1="6" x2="18" y2="18"/>
+        </svg>
+      </button>
+    </div>
+  `).join('');
+  
+  tabList.querySelectorAll('.tab').forEach(tabEl => {
+    const tabId = tabEl.dataset.id;
+    
+    tabEl.addEventListener('click', (e) => {
+      if (!e.target.closest('.tab-close')) {
+        switchToTab(tabId);
+      }
+    });
+    
+    tabEl.addEventListener('auxclick', (e) => {
+      if (e.button === 1) {
+        e.preventDefault();
+        closeTab(tabId);
+      }
+    });
+    
+    tabEl.addEventListener('dragstart', (e) => {
+      draggedTabId = tabId;
+      tabEl.classList.add('dragging');
+      e.dataTransfer.effectAllowed = 'move';
+    });
+    
+    tabEl.addEventListener('dragend', () => {
+      tabEl.classList.remove('dragging');
+      draggedTabId = null;
+      document.querySelectorAll('.tab').forEach(t => t.classList.remove('drag-over'));
+    });
+    
+    tabEl.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      if (draggedTabId && draggedTabId !== tabId) {
+        tabEl.classList.add('drag-over');
+      }
+    });
+    
+    tabEl.addEventListener('dragleave', () => {
+      tabEl.classList.remove('drag-over');
+    });
+    
+    tabEl.addEventListener('drop', (e) => {
+      e.preventDefault();
+      if (draggedTabId && draggedTabId !== tabId) {
+        const draggedIndex = tabs.findIndex(t => t.id === draggedTabId);
+        const targetIndex = tabs.findIndex(t => t.id === tabId);
+        
+        const [draggedTab] = tabs.splice(draggedIndex, 1);
+        tabs.splice(targetIndex, 0, draggedTab);
+        renderTabs();
+      }
+    });
+  });
+  
+  tabList.querySelectorAll('.tab-close').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      closeTab(btn.dataset.tabId);
+    });
+  });
+}
+
+function initTabs() {
+  createTab('New Chat');
+  
+  document.getElementById('new-tab-btn').addEventListener('click', () => {
+    createTab('New Chat');
+  });
+  
+  document.addEventListener('keydown', (e) => {
+    if (e.ctrlKey && e.key === 't') {
+      e.preventDefault();
+      createTab('New Chat');
+    } else if (e.ctrlKey && e.key === 'w') {
+      e.preventDefault();
+      if (activeTabId) {
+        closeTab(activeTabId);
+      }
+    } else if (e.ctrlKey && e.key === 'Tab') {
+      e.preventDefault();
+      if (tabs.length > 1) {
+        const currentIndex = tabs.findIndex(t => t.id === activeTabId);
+        const nextIndex = (currentIndex + 1) % tabs.length;
+        switchToTab(tabs[nextIndex].id);
+      }
+    }
+  });
+}
+
 function initSpeechRecognition() {
   const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
   if (!SpeechRecognition) {
@@ -1019,6 +1229,12 @@ window.maxi.onChatComplete(() => {
   if (welcome) {
     welcome.remove();
   }
+  
+  const activeTab = tabs.find(t => t.id === activeTabId);
+  if (activeTab) {
+    activeTab.messages = messages;
+    activeTab.hasUnsavedChanges = hasUnsavedChanges;
+  }
 });
 
 window.maxi.onTokenUsage((data) => {
@@ -1123,22 +1339,34 @@ saveSettingsBtn.addEventListener('click', () => {
 });
 
 clearChatBtn.addEventListener('click', () => {
-  messages = [];
-  currentChatId = null;
-  hasUnsavedChanges = false;
-  chatMessages.innerHTML = `
-    <div class="welcome-state">
-      <div class="welcome-icon">
-        <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-          <path d="M12 2L2 7l10 5 10-5-10-5z"/>
-          <path d="M2 17l10 5 10-5"/>
-          <path d="M2 12l10 5 10-5"/>
-        </svg>
+  if (tabs.length > 1) {
+    closeTab(activeTabId);
+  } else {
+    messages = [];
+    currentChatId = null;
+    hasUnsavedChanges = false;
+    const activeTab = tabs.find(t => t.id === activeTabId);
+    if (activeTab) {
+      activeTab.messages = [];
+      activeTab.chatId = null;
+      activeTab.hasUnsavedChanges = false;
+      activeTab.title = 'New Chat';
+    }
+    chatMessages.innerHTML = `
+      <div class="welcome-state">
+        <div class="welcome-icon">
+          <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+            <path d="M12 2L2 7l10 5 10-5-10-5z"/>
+            <path d="M2 17l10 5 10-5"/>
+            <path d="M2 12l10 5 10-5"/>
+          </svg>
+        </div>
+        <h2>Welcome to Maxi</h2>
+        <p>Ask me anything, or drag files into the chat to get started.</p>
       </div>
-      <h2>Welcome to Maxi</h2>
-      <p>Ask me anything, or drag files into the chat to get started.</p>
-    </div>
-  `;
+    `;
+    renderTabs();
+  }
   settingsModal.classList.add('hidden');
   showToast('Chat cleared', 'success');
 });
@@ -1504,6 +1732,13 @@ async function sendMessage() {
   
   messages.push({ role: 'user', content: fullContent });
   hasUnsavedChanges = true;
+  
+  const activeTab = tabs.find(t => t.id === activeTabId);
+  if (activeTab) {
+    activeTab.hasUnsavedChanges = true;
+  }
+  updateActiveTabTitle();
+  renderTabs();
   
   addMessage('user', userContent, 'text', attachedImages);
   attachedFiles = [];
@@ -2055,6 +2290,7 @@ loadSkills();
 loadWorkspaceFiles();
 showMCPServers();
 initChatHistory();
+initTabs();
 
 const saveChatBtn = document.getElementById('save-chat-btn');
 const loadChatBtn = document.getElementById('load-chat-btn');
@@ -2106,13 +2342,14 @@ function startAutoSave() {
 }
 
 async function performAutoSave() {
-  if (messages.length === 0) return;
+  const activeTab = tabs.find(t => t.id === activeTabId);
+  if (!activeTab || activeTab.messages.length === 0) return;
   try {
-    const title = messages[0]?.content?.substring(0, 50) || 'Untitled';
+    const title = activeTab.title || 'Untitled';
     await window.maxi.saveAutosave({
-      id: currentChatId,
-      title: title + '...',
-      messages: messages
+      id: activeTab.chatId,
+      title: title,
+      messages: activeTab.messages
     });
   } catch (error) {
     console.error('Auto-save failed:', error);
@@ -2125,9 +2362,18 @@ async function checkForAutosave() {
     if (autosave && autosave.messages && autosave.messages.length > 0) {
       const shouldRestore = confirm('Unsaved chat found. Would you like to restore it?');
       if (shouldRestore) {
-        messages = autosave.messages;
-        currentChatId = autosave.id;
+        const newTabId = createTab(autosave.title || 'Recovered Chat');
+        if (newTabId) {
+          const newTab = tabs.find(t => t.id === newTabId);
+          if (newTab) {
+            newTab.messages = autosave.messages;
+            newTab.hasUnsavedChanges = true;
+            messages = newTab.messages;
+            currentChatId = autosave.id;
+          }
+        }
         renderMessages();
+        renderTabs();
         showToast('Chat restored from autosave', 'success');
         await window.maxi.clearAutosave();
       } else {
@@ -2140,22 +2386,26 @@ async function checkForAutosave() {
 }
 
 async function saveCurrentChat() {
-  if (messages.length === 0) {
+  const activeTab = tabs.find(t => t.id === activeTabId);
+  if (!activeTab || activeTab.messages.length === 0) {
     showToast('No messages to save', 'warning');
     return;
   }
   try {
-    const title = messages[0]?.content?.substring(0, 50) || 'Untitled';
+    const title = activeTab.title || 'Untitled';
     const result = await window.maxi.saveChat({
-      id: currentChatId,
-      title: title + '...',
-      messages: messages
+      id: activeTab.chatId,
+      title: title,
+      messages: activeTab.messages
     });
     if (result.success) {
+      activeTab.chatId = result.id;
+      activeTab.hasUnsavedChanges = false;
       currentChatId = result.id;
       hasUnsavedChanges = false;
       showToast('Chat saved successfully', 'success');
       await loadChatHistoryList();
+      renderTabs();
     } else {
       showToast('Failed to save chat: ' + result.error, 'error');
     }
@@ -2340,17 +2590,34 @@ function closePreviewFn() {
 async function loadSelectedChat(merge = false) {
   if (!selectedChatData) return;
   
+  const activeTab = tabs.find(t => t.id === activeTabId);
+  
   if (merge) {
     messages = [...messages, ...selectedChatData.messages];
+    if (activeTab) {
+      activeTab.messages = messages;
+      activeTab.hasUnsavedChanges = true;
+    }
     showToast('Chat merged successfully', 'success');
   } else {
-    messages = selectedChatData.messages;
-    currentChatId = selectedChatId;
-    hasUnsavedChanges = false;
+    if (activeTab && activeTab.messages.length > 0) {
+      createTab(selectedChatData.title || 'Loaded Chat');
+    }
+    const newActiveTab = tabs.find(t => t.id === activeTabId);
+    if (newActiveTab) {
+      newActiveTab.messages = selectedChatData.messages;
+      newActiveTab.chatId = selectedChatId;
+      newActiveTab.hasUnsavedChanges = false;
+      newActiveTab.title = selectedChatData.title || 'Loaded Chat';
+      messages = newActiveTab.messages;
+      currentChatId = selectedChatId;
+      hasUnsavedChanges = false;
+    }
     showToast('Chat loaded successfully', 'success');
   }
   
   renderMessages();
+  renderTabs();
   closeChatHistoryModalFn();
 }
 
@@ -2452,7 +2719,17 @@ async function deleteChatItem(chatId) {
 }
 
 window.addEventListener('beforeunload', async () => {
-  if (hasUnsavedChanges && messages.length > 0) {
-    await performAutoSave();
+  const activeTab = tabs.find(t => t.id === activeTabId);
+  if (activeTab && activeTab.hasUnsavedChanges && activeTab.messages.length > 0) {
+    const currentActiveId = activeTabId;
+    tabs.forEach(async (tab) => {
+      if (tab.hasUnsavedChanges && tab.messages.length > 0) {
+        activeTabId = tab.id;
+        messages = tab.messages;
+        hasUnsavedChanges = true;
+        await performAutoSave();
+      }
+    });
+    activeTabId = currentActiveId;
   }
 });
