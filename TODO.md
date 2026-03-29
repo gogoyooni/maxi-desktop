@@ -61,10 +61,10 @@
 
 ### High Priority
 - [x] Voice input (microphone)
-- [ ] Image upload/preview
-- [ ] Code execution in sandbox
-- [ ] Terminal emulator in sidebar
-- [ ] SSH remote connection
+- [x] Image upload/preview
+- [x] Code execution in sandbox
+- [x] Terminal emulator in sidebar
+- [x] SSH remote connection
 
 ### Medium Priority
 - [ ] Chat history (save/load)
