@@ -8,6 +8,8 @@ contextBridge.exposeInMainWorld('maxi', {
   readFile: (filePath) => ipcRenderer.invoke('read-file', filePath),
   getHomePath: () => ipcRenderer.invoke('get-home-path'),
   selectWorkspace: () => ipcRenderer.invoke('select-workspace'),
+  executeCode: (options) => ipcRenderer.invoke('execute-code', options),
+  stopExecution: (executionId) => ipcRenderer.invoke('stop-execution', executionId),
   
   onChatStream: (callback) => {
     ipcRenderer.on('chat-stream', (_, content) => callback(content));

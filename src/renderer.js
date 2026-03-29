@@ -512,11 +512,20 @@ function parseMarkdown(text) {
   html = html.replace(/```(\w*)\n([\s\S]*?)```/g, (match, lang, code) => {
     const lines = code.trim().split('\n');
     const lineNumbers = lines.map((_, i) => `<span class="line-number">${i + 1}</span>`).join('');
+    const executionId = 'exec_' + Math.random().toString(36).substr(2, 9);
+    const isRunnable = ['javascript', 'js', 'python', 'py', 'node', 'nodejs', 'bash', 'shell', 'sh'].includes(lang.toLowerCase());
     return `
-      <div class="code-block">
+      <div class="code-block" data-lang="${lang}" data-code="${escapeHtml(code.trim())}" data-exec-id="${executionId}">
         <div class="code-header">
           <span class="code-language">${lang || 'code'}</span>
           <div class="code-actions">
+            ${isRunnable ? `
+            <button class="run-btn" title="Run code">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" stroke="none">
+                <polygon points="5 3 19 12 5 21 5 3"/>
+              </svg>
+            </button>
+            ` : ''}
             <button class="copy-btn" title="Copy code">
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                 <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
@@ -526,6 +535,24 @@ function parseMarkdown(text) {
           </div>
         </div>
         <pre><code>${escapeHtml(code.trim())}</code></pre>
+        ${isRunnable ? `
+        <div class="code-output hidden">
+          <div class="output-header">
+            <span class="output-title">Output</span>
+            <button class="clear-output-btn" title="Clear output">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <line x1="18" y1="6" x2="6" y2="18"/>
+                <line x1="6" y1="6" x2="18" y2="18"/>
+              </svg>
+            </button>
+          </div>
+          <pre class="output-content"></pre>
+          <div class="output-footer hidden">
+            <span class="output-status"></span>
+            <span class="output-time"></span>
+          </div>
+        </div>
+        ` : ''}
       </div>
     `;
   });
@@ -657,6 +684,37 @@ function addMessage(role, content, type = 'text', images = []) {
         showToast('Copied to clipboard', 'success');
       });
     }
+
+    msgDiv.querySelectorAll('.code-block').forEach((block) => {
+      const runBtn = block.querySelector('.run-btn');
+      const copyBtn = block.querySelector('.copy-btn');
+      const clearBtn = block.querySelector('.clear-output-btn');
+      const code = block.dataset.code;
+      const lang = block.dataset.lang;
+      const execId = block.dataset.execId;
+
+      if (copyBtn) {
+        copyBtn.addEventListener('click', () => {
+          navigator.clipboard.writeText(code);
+          showToast('Copied to clipboard', 'success');
+        });
+      }
+
+      if (clearBtn) {
+        clearBtn.addEventListener('click', () => {
+          const outputPanel = block.querySelector('.code-output');
+          const outputContent = outputPanel.querySelector('.output-content');
+          const outputFooter = outputPanel.querySelector('.output-footer');
+          outputContent.textContent = '';
+          outputFooter.classList.add('hidden');
+          outputPanel.classList.add('hidden');
+        });
+      }
+
+      if (runBtn) {
+        runBtn.addEventListener('click', () => handleRunCode(block, lang, code, execId));
+      }
+    });
     
     msgDiv.querySelectorAll('.message-image').forEach((imgEl, i) => {
       imgEl.addEventListener('click', (e) => {
@@ -957,6 +1015,96 @@ function formatFileSize(bytes) {
   const sizes = ['B', 'KB', 'MB', 'GB'];
   const i = Math.floor(Math.log(bytes) / Math.log(k));
   return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
+}
+
+async function handleRunCode(block, language, code, executionId) {
+  const outputPanel = block.querySelector('.code-output');
+  const outputContent = outputPanel.querySelector('.output-content');
+  const outputFooter = outputPanel.querySelector('.output-footer');
+  const outputStatus = outputPanel.querySelector('.output-status');
+  const outputTime = outputPanel.querySelector('.output-time');
+  const runBtn = block.querySelector('.run-btn');
+
+  let isStopped = false;
+
+  if (runBtn.classList.contains('running')) {
+    const stopped = await window.maxi.stopExecution(executionId);
+    if (stopped) {
+      isStopped = true;
+      runBtn.classList.remove('running');
+      runBtn.innerHTML = `
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" stroke="none">
+          <polygon points="5 3 19 12 5 21 5 3"/>
+        </svg>
+      `;
+      outputContent.textContent = '[Stopped by user]';
+      outputStatus.innerHTML = `<span class="error-icon">⏹</span> Stopped`;
+      outputStatus.className = 'output-status error';
+      outputFooter.classList.remove('hidden');
+    }
+    return;
+  }
+
+  outputPanel.classList.remove('hidden');
+  outputContent.textContent = '';
+  outputFooter.classList.add('hidden');
+
+  runBtn.classList.add('running');
+  runBtn.innerHTML = `
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" stroke="none">
+      <rect x="6" y="4" width="4" height="16"/>
+      <rect x="14" y="4" width="4" height="16"/>
+    </svg>
+  `;
+
+  outputContent.textContent = 'Running...\n';
+
+  try {
+    const result = await window.maxi.executeCode({
+      language,
+      code,
+      executionId
+    });
+
+    if (isStopped) return;
+
+    outputContent.textContent = '';
+
+    if (result.stdout) {
+      outputContent.textContent += result.stdout + (result.stderr ? '\n' : '');
+    }
+
+    if (result.stderr) {
+      outputContent.innerHTML += `<span class="stderr">${escapeHtml(result.stderr)}</span>`;
+    }
+
+    const duration = result.duration < 1000 ? `${result.duration}ms` : `${(result.duration / 1000).toFixed(2)}s`;
+
+    if (result.success) {
+      outputStatus.innerHTML = `<span class="success-icon">✓</span> Completed`;
+      outputStatus.className = 'output-status success';
+    } else {
+      outputStatus.innerHTML = `<span class="error-icon">✗</span> Exit code: ${result.exitCode}`;
+      outputStatus.className = 'output-status error';
+    }
+
+    outputTime.textContent = `in ${duration}`;
+    outputFooter.classList.remove('hidden');
+
+  } catch (err) {
+    if (isStopped) return;
+    outputContent.innerHTML += `<span class="stderr">Error: ${escapeHtml(err.message)}</span>`;
+    outputStatus.innerHTML = `<span class="error-icon">✗</span> Failed`;
+    outputStatus.className = 'output-status error';
+    outputFooter.classList.remove('hidden');
+  }
+
+  runBtn.classList.remove('running');
+  runBtn.innerHTML = `
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" stroke="none">
+      <polygon points="5 3 19 12 5 21 5 3"/>
+    </svg>
+  `;
 }
 
 function addAttachedFile(fileData) {

@@ -3,6 +3,8 @@ const path = require('node:path');
 const fs = require('node:fs');
 const https = require('node:https');
 const os = require('node:os');
+const { spawn } = require('child_process');
+const vm = require('vm');
 
 if (require('electron-squirrel-startup')) {
   app.quit();
@@ -298,4 +300,237 @@ ipcMain.handle('stream-chat', async (event, { messages, apiKey, model }) => {
     req.write(postData);
     req.end();
   });
+});
+
+const runningProcesses = new Map();
+
+const EXECUTION_TIMEOUT = 30000;
+
+ipcMain.handle('execute-code', async (event, { language, code, executionId }) => {
+  return new Promise((resolve) => {
+    const startTime = Date.now();
+    let stdout = '';
+    let stderr = '';
+    let processRef = null;
+
+    const cleanup = () => {
+      if (processRef) {
+        try {
+          processRef.kill('SIGTERM');
+        } catch (e) {}
+        processRef = null;
+      }
+      runningProcesses.delete(executionId);
+    };
+
+    const timeoutId = setTimeout(() => {
+      cleanup();
+      resolve({
+        success: false,
+        stdout,
+        stderr: stderr + '\n[TIMEOUT: Execution exceeded 30 seconds]',
+        exitCode: -1,
+        duration: Date.now() - startTime
+      });
+    }, EXECUTION_TIMEOUT);
+
+    runningProcesses.set(executionId, { kill: cleanup });
+
+    try {
+      if (language === 'javascript' || language === 'js') {
+        const log = { stdout: [], stderr: [] };
+        const sandbox = {
+          console: {
+            log: (...args) => log.stdout.push(args.map(String).join(' ')),
+            error: (...args) => log.stderr.push(args.map(String).join(' ')),
+            warn: (...args) => log.stdout.push('[WARN] ' + args.map(String).join(' ')),
+            info: (...args) => log.stdout.push('[INFO] ' + args.map(String).join(' ')),
+          },
+          setTimeout: (fn, ms) => setTimeout(fn, Math.min(ms, 5000)),
+          setInterval: (fn, ms) => setInterval(fn, Math.min(ms, 5000)),
+          Math,
+          Date,
+          JSON,
+          Array,
+          Object,
+          String,
+          Number,
+          Boolean,
+          RegExp,
+          Error,
+          Map,
+          Set,
+          Promise
+        };
+
+        try {
+          const script = new vm.Script(code);
+          const context = vm.createContext(sandbox);
+          script.runInContext(context, { timeout: 10000 });
+          
+          clearTimeout(timeoutId);
+          cleanup();
+          resolve({
+            success: log.stderr.length === 0,
+            stdout: log.stdout.join('\n'),
+            stderr: log.stderr.join('\n'),
+            exitCode: 0,
+            duration: Date.now() - startTime
+          });
+        } catch (err) {
+          clearTimeout(timeoutId);
+          cleanup();
+          resolve({
+            success: false,
+            stdout: log.stdout.join('\n'),
+            stderr: err.message,
+            exitCode: 1,
+            duration: Date.now() - startTime
+          });
+        }
+
+      } else if (language === 'python' || language === 'py') {
+        processRef = spawn('python3', ['-c', code], {
+          stdio: ['pipe', 'pipe', 'pipe']
+        });
+
+        processRef.stdout.on('data', (data) => {
+          stdout += data.toString();
+        });
+
+        processRef.stderr.on('data', (data) => {
+          stderr += data.toString();
+        });
+
+        processRef.on('close', (code) => {
+          clearTimeout(timeoutId);
+          cleanup();
+          resolve({
+            success: code === 0,
+            stdout,
+            stderr,
+            exitCode: code,
+            duration: Date.now() - startTime
+          });
+        });
+
+        processRef.on('error', (err) => {
+          clearTimeout(timeoutId);
+          cleanup();
+          resolve({
+            success: false,
+            stdout,
+            stderr: err.message,
+            exitCode: 1,
+            duration: Date.now() - startTime
+          });
+        });
+
+      } else if (language === 'node' || language === 'nodejs') {
+        processRef = spawn('node', ['-e', code], {
+          stdio: ['pipe', 'pipe', 'pipe']
+        });
+
+        processRef.stdout.on('data', (data) => {
+          stdout += data.toString();
+        });
+
+        processRef.stderr.on('data', (data) => {
+          stderr += data.toString();
+        });
+
+        processRef.on('close', (code) => {
+          clearTimeout(timeoutId);
+          cleanup();
+          resolve({
+            success: code === 0,
+            stdout,
+            stderr,
+            exitCode: code,
+            duration: Date.now() - startTime
+          });
+        });
+
+        processRef.on('error', (err) => {
+          clearTimeout(timeoutId);
+          cleanup();
+          resolve({
+            success: false,
+            stdout,
+            stderr: err.message,
+            exitCode: 1,
+            duration: Date.now() - startTime
+          });
+        });
+
+      } else if (language === 'bash' || language === 'shell' || language === 'sh') {
+        processRef = spawn('/bin/sh', ['-c', code], {
+          stdio: ['pipe', 'pipe', 'pipe']
+        });
+
+        processRef.stdout.on('data', (data) => {
+          stdout += data.toString();
+        });
+
+        processRef.stderr.on('data', (data) => {
+          stderr += data.toString();
+        });
+
+        processRef.on('close', (code) => {
+          clearTimeout(timeoutId);
+          cleanup();
+          resolve({
+            success: code === 0,
+            stdout,
+            stderr,
+            exitCode: code,
+            duration: Date.now() - startTime
+          });
+        });
+
+        processRef.on('error', (err) => {
+          clearTimeout(timeoutId);
+          cleanup();
+          resolve({
+            success: false,
+            stdout,
+            stderr: err.message,
+            exitCode: 1,
+            duration: Date.now() - startTime
+          });
+        });
+
+      } else {
+        clearTimeout(timeoutId);
+        cleanup();
+        resolve({
+          success: false,
+          stdout: '',
+          stderr: `Unsupported language: ${language}`,
+          exitCode: 1,
+          duration: Date.now() - startTime
+        });
+      }
+    } catch (err) {
+      clearTimeout(timeoutId);
+      cleanup();
+      resolve({
+        success: false,
+        stdout: '',
+        stderr: err.message,
+        exitCode: 1,
+        duration: Date.now() - startTime
+      });
+    }
+  });
+});
+
+ipcMain.handle('stop-execution', (event, executionId) => {
+  const proc = runningProcesses.get(executionId);
+  if (proc) {
+    proc.kill();
+    runningProcesses.delete(executionId);
+    return true;
+  }
+  return false;
 });

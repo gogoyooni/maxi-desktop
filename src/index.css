@@ -1721,3 +1721,129 @@ body {
     display: none;
   }
 }
+
+.run-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.run-btn:hover {
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+}
+
+.run-btn.running {
+  color: var(--error);
+}
+
+.run-btn.running svg {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+.code-output {
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(0, 0, 0, 0.3);
+}
+
+.output-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.5rem 0.75rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.output-title {
+  font-size: 0.6875rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+  letter-spacing: 0.05em;
+}
+
+.clear-output-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.clear-output-btn:hover {
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+}
+
+.output-content {
+  margin: 0;
+  padding: 0.75rem 1rem;
+  font-family: 'Fira Code', 'SF Mono', Monaco, monospace;
+  font-size: 0.8125rem;
+  line-height: 1.6;
+  color: var(--text-primary);
+  white-space: pre-wrap;
+  word-break: break-all;
+  max-height: 300px;
+  overflow-y: auto;
+}
+
+.output-content .stderr {
+  color: var(--error);
+}
+
+.output-footer {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding: 0.5rem 0.75rem;
+  border-top: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.output-status {
+  font-size: 0.75rem;
+  font-weight: 500;
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.output-status.success {
+  color: var(--success);
+}
+
+.output-status.error {
+  color: var(--error);
+}
+
+.output-time {
+  font-size: 0.6875rem;
+  color: var(--text-muted);
+}
+
+.success-icon {
+  color: var(--success);
+}
+
+.error-icon {
+  color: var(--error);
+}
