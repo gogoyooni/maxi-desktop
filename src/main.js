@@ -675,7 +675,7 @@ ipcMain.handle('stream-chat', async (event, { messages, apiKey, model }) => {
   return new Promise((resolve, reject) => {
     const options = {
       hostname: 'api.minimax.io',
-      path: '/anthropic/v1/messages',
+      path: '/anthropic/messages',
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
