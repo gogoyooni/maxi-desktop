@@ -2323,6 +2323,242 @@ renameChatModal.querySelector('.modal-backdrop').addEventListener('click', close
 cancelRenameBtn.addEventListener('click', closeRenameModalFn);
 confirmRenameBtn.addEventListener('click', confirmRename);
 
+const shortcutsModal = document.getElementById('shortcuts-modal');
+const closeShortcutsBtn = document.getElementById('close-shortcuts');
+const shortcutsSearchInput = document.getElementById('shortcuts-search-input');
+const shortcutsList = document.getElementById('shortcuts-list');
+const shortcutsBtn = document.getElementById('shortcuts-btn');
+
+const shortcutsData = [
+  {
+    category: 'Chat',
+    items: [
+      { keys: ['Ctrl', 'Enter'], desc: 'Send message', action: () => sendMessage() },
+      { keys: ['Ctrl', 'Shift', 'C'], desc: 'Clear chat', action: () => clearChatAction() },
+      { keys: ['Ctrl', 'T'], desc: 'New tab', action: () => createTab('New Chat') },
+      { keys: ['Ctrl', 'W'], desc: 'Close tab', action: () => activeTabId && closeTab(activeTabId) }
+    ]
+  },
+  {
+    category: 'Navigation',
+    items: [
+      { keys: ['Ctrl', 'B'], desc: 'Toggle sidebar', action: () => sidebar.classList.toggle('sidebar-open') },
+      { keys: ['Ctrl', '`'], desc: 'Toggle terminal', action: () => toggleTerminal() },
+      { keys: ['Ctrl', 'Tab'], desc: 'Next tab', action: () => cycleTab(1) },
+      { keys: ['Ctrl', 'Shift', 'Tab'], desc: 'Previous tab', action: () => cycleTab(-1) }
+    ]
+  },
+  {
+    category: 'Files',
+    items: [
+      { keys: ['Ctrl', 'N'], desc: 'New file', action: () => createNewFile() },
+      { keys: ['Ctrl', 'S'], desc: 'Save file', action: () => saveCurrentFile() },
+      { keys: ['Ctrl', 'O'], desc: 'Open folder', action: () => browseWorkspace.click() }
+    ]
+  },
+  {
+    category: 'Editing',
+    items: [
+      { keys: ['Ctrl', 'C'], desc: 'Copy', action: () => document.execCommand('copy') },
+      { keys: ['Ctrl', 'V'], desc: 'Paste', action: () => document.execCommand('paste') },
+      { keys: ['Ctrl', 'Z'], desc: 'Undo', action: () => document.execCommand('undo') },
+      { keys: ['Ctrl', 'Shift', 'Z'], desc: 'Redo', action: () => document.execCommand('redo') }
+    ]
+  },
+  {
+    category: 'Settings',
+    items: [
+      { keys: ['Ctrl', ','], desc: 'Open settings', action: () => settingsModal.classList.remove('hidden') },
+      { keys: ['Ctrl', 'Shift', 'T'], desc: 'Toggle theme', action: () => themeToggle.click() }
+    ]
+  },
+  {
+    category: 'Voice',
+    items: [
+      { keys: ['Ctrl', 'Shift', 'M'], desc: 'Start/stop recording', action: () => toggleRecording() }
+    ]
+  },
+  {
+    category: 'Chat History',
+    items: [
+      { keys: ['Ctrl', 'Shift', 'S'], desc: 'Save chat', action: () => saveCurrentChat() },
+      { keys: ['Ctrl', 'Shift', 'O'], desc: 'Load chat', action: () => openChatHistoryModal() }
+    ]
+  },
+  {
+    category: 'General',
+    items: [
+      { keys: ['Ctrl', '/'], desc: 'Keyboard shortcuts', action: () => {} },
+      { keys: ['Ctrl', 'K'], desc: 'Keyboard shortcuts', action: () => {} },
+      { keys: ['?'], desc: 'Keyboard shortcuts', action: () => openShortcutsModal() }
+    ]
+  }
+];
+
+function cycleTab(direction) {
+  if (tabs.length <= 1) return;
+  const currentIndex = tabs.findIndex(t => t.id === activeTabId);
+  const nextIndex = (currentIndex + direction + tabs.length) % tabs.length;
+  switchToTab(tabs[nextIndex].id);
+}
+
+function clearChatAction() {
+  if (tabs.length > 1) {
+    closeTab(activeTabId);
+  } else {
+    messages = [];
+    currentChatId = null;
+    hasUnsavedChanges = false;
+    const activeTab = tabs.find(t => t.id === activeTabId);
+    if (activeTab) {
+      activeTab.messages = [];
+      activeTab.chatId = null;
+      activeTab.hasUnsavedChanges = false;
+      activeTab.title = 'New Chat';
+    }
+    chatMessages.innerHTML = `
+      <div class="welcome-state">
+        <div class="welcome-icon">
+          <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+            <path d="M12 2L2 7l10 5 10-5-10-5z"/>
+            <path d="M2 17l10 5 10-5"/>
+            <path d="M2 12l10 5 10-5"/>
+          </svg>
+        </div>
+        <h2>Welcome to Maxi</h2>
+        <p>Ask me anything, or drag files into the chat to get started.</p>
+      </div>
+    `;
+    renderTabs();
+  }
+}
+
+function createNewFile() {
+  const activeTab = tabs.find(t => t.id === activeTabId);
+  if (activeTab) {
+    activeTab.content = '';
+    activeTab.filePath = null;
+    activeTab.hasUnsavedChanges = true;
+    showToast('New file created', 'success');
+  }
+}
+
+function saveCurrentFile() {
+  const activeTab = tabs.find(t => t.id === activeTabId);
+  if (activeTab && activeTab.hasUnsavedChanges) {
+    if (activeTab.filePath) {
+      window.maxi.saveFile(activeTab.filePath, activeTab.content);
+      activeTab.hasUnsavedChanges = false;
+      showToast('File saved', 'success');
+    }
+  }
+}
+
+function toggleRecording() {
+  if (isRecording) {
+    stopRecording();
+  } else {
+    startRecording();
+  }
+}
+
+function renderShortcutsList(filter = '') {
+  shortcutsList.innerHTML = '';
+  const lowerFilter = filter.toLowerCase();
+
+  shortcutsData.forEach(section => {
+    const sectionEl = document.createElement('div');
+    sectionEl.className = 'shortcut-section';
+
+    const titleEl = document.createElement('div');
+    titleEl.className = 'shortcut-section-title';
+    titleEl.textContent = section.category;
+    sectionEl.appendChild(titleEl);
+
+    let hasVisibleItems = false;
+
+    section.items.forEach(item => {
+      const matchesFilter = filter === '' || 
+        item.desc.toLowerCase().includes(lowerFilter) ||
+        item.keys.join(' ').toLowerCase().includes(lowerFilter);
+
+      if (!matchesFilter) return;
+      hasVisibleItems = true;
+
+      const itemEl = document.createElement('div');
+      itemEl.className = 'shortcut-item';
+
+      const descEl = document.createElement('span');
+      descEl.className = 'shortcut-desc';
+      descEl.textContent = item.desc;
+
+      const keysEl = document.createElement('span');
+      keysEl.className = 'shortcut-keys';
+
+      item.keys.forEach((key, idx) => {
+        if (idx > 0) {
+          const plusEl = document.createElement('span');
+          plusEl.className = 'shortcut-plus';
+          plusEl.textContent = '+';
+          keysEl.appendChild(plusEl);
+        }
+        const kbdEl = document.createElement('span');
+        kbdEl.className = 'kbd';
+        kbdEl.textContent = key;
+        keysEl.appendChild(kbdEl);
+      });
+
+      itemEl.appendChild(descEl);
+      itemEl.appendChild(keysEl);
+
+      itemEl.addEventListener('click', () => {
+        item.action();
+        closeShortcutsModalFn();
+      });
+
+      sectionEl.appendChild(itemEl);
+    });
+
+    if (hasVisibleItems) {
+      shortcutsList.appendChild(sectionEl);
+    }
+  });
+}
+
+function openShortcutsModal() {
+  shortcutsModal.classList.remove('hidden');
+  shortcutsSearchInput.value = '';
+  renderShortcutsList();
+  shortcutsSearchInput.focus();
+}
+
+function closeShortcutsModalFn() {
+  shortcutsModal.classList.add('hidden');
+}
+
+shortcutsBtn.addEventListener('click', openShortcutsModal);
+closeShortcutsBtn.addEventListener('click', closeShortcutsModalFn);
+shortcutsModal.querySelector('.modal-backdrop').addEventListener('click', closeShortcutsModalFn);
+shortcutsSearchInput.addEventListener('input', (e) => renderShortcutsList(e.target.value));
+
+document.addEventListener('keydown', (e) => {
+  if ((e.ctrlKey || e.metaKey) && (e.key === '/' || e.key === 'k')) {
+    e.preventDefault();
+    if (shortcutsModal.classList.contains('hidden')) {
+      openShortcutsModal();
+    } else {
+      closeShortcutsModalFn();
+    }
+  }
+  if (e.key === '?' && !e.ctrlKey && !e.metaKey && document.activeElement.tagName !== 'INPUT' && document.activeElement.tagName !== 'TEXTAREA') {
+    e.preventDefault();
+    openShortcutsModal();
+  }
+  if (e.key === 'Escape' && !shortcutsModal.classList.contains('hidden')) {
+    closeShortcutsModalFn();
+  }
+});
+
 startAutoSave();
 checkForAutosave();
 

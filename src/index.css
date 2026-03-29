@@ -2584,3 +2584,131 @@ body {
   border-color: var(--accent);
   background: var(--accent-muted);
 }
+
+.shortcuts-modal-content {
+  max-width: 580px;
+  max-height: 80vh;
+}
+
+.shortcuts-search {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-tertiary);
+}
+
+.shortcuts-search svg {
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+#shortcuts-search-input {
+  flex: 1;
+  background: transparent;
+  border: none;
+  color: var(--text-primary);
+  font-size: 0.875rem;
+  outline: none;
+}
+
+#shortcuts-search-input::placeholder {
+  color: var(--text-muted);
+}
+
+.shortcuts-body {
+  padding: 0;
+  max-height: calc(80vh - 120px);
+  overflow-y: auto;
+}
+
+.shortcuts-list {
+  padding: 0.5rem 0;
+}
+
+.shortcut-section {
+  margin-bottom: 0.5rem;
+}
+
+.shortcut-section:last-child {
+  margin-bottom: 0;
+}
+
+.shortcut-section-title {
+  font-size: 0.7rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+  padding: 0.75rem 1.5rem 0.5rem;
+  background: var(--bg-primary);
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+
+.shortcut-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.5rem 1.5rem;
+  cursor: pointer;
+  transition: background var(--transition-fast);
+}
+
+.shortcut-item:hover {
+  background: var(--bg-tertiary);
+}
+
+.shortcut-item.hidden {
+  display: none;
+}
+
+.shortcut-desc {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.875rem;
+  color: var(--text-primary);
+}
+
+.shortcut-desc svg {
+  width: 16px;
+  height: 16px;
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+.shortcut-keys {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.kbd {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 24px;
+  height: 22px;
+  padding: 0 0.4rem;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  font-size: 0.7rem;
+  font-family: monospace;
+  font-weight: 500;
+  color: var(--text-secondary);
+  box-shadow: 0 1px 0 var(--border);
+}
+
+.kbd + .kbd {
+  margin-left: 2px;
+}
+
+.shortcut-plus {
+  color: var(--text-muted);
+  font-size: 0.7rem;
+  margin: 0 2px;
+}

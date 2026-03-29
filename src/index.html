@@ -57,6 +57,12 @@
             <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
           </svg>
         </button>
+        <button id="shortcuts-btn" class="icon-btn" title="Keyboard Shortcuts">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <rect x="2" y="4" width="20" height="16" rx="2"/>
+            <path d="M6 8h.001M10 8h.001M14 8h.001M18 8h.001M8 12h.001M12 12h.001M16 12h.001M6 16h12"/>
+          </svg>
+        </button>
       </div>
     </header>
 
@@ -519,6 +525,31 @@
         <div class="modal-footer">
           <button id="cancel-rename" class="btn secondary">Cancel</button>
           <button id="confirm-rename" class="btn primary">Rename</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="shortcuts-modal" class="modal hidden">
+      <div class="modal-backdrop"></div>
+      <div class="modal-content shortcuts-modal-content">
+        <div class="modal-header">
+          <h2>Keyboard Shortcuts</h2>
+          <button id="close-shortcuts" class="icon-btn">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <line x1="18" y1="6" x2="6" y2="18"/>
+              <line x1="6" y1="6" x2="18" y2="18"/>
+            </svg>
+          </button>
+        </div>
+        <div class="shortcuts-search">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="11" cy="11" r="8"/>
+            <line x1="21" y1="21" x2="16.65" y2="16.65"/>
+          </svg>
+          <input type="text" id="shortcuts-search-input" placeholder="Search shortcuts...">
+        </div>
+        <div class="modal-body shortcuts-body">
+          <div id="shortcuts-list" class="shortcuts-list"></div>
         </div>
       </div>
     </div>
