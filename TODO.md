@@ -60,7 +60,7 @@
 ## 🔜 Planned Features
 
 ### High Priority
-- [ ] Voice input (microphone)
+- [x] Voice input (microphone)
 - [ ] Image upload/preview
 - [ ] Code execution in sandbox
 - [ ] Terminal emulator in sidebar
