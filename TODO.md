@@ -67,11 +67,11 @@
 - [x] SSH remote connection
 
 ### Medium Priority
-- [ ] Chat history (save/load)
-- [ ] Multiple sessions/tabs
-- [ ] Keyboard shortcuts modal
-- [ ] Export chat as Markdown
-- [ ] Share conversation link
+- [x] Chat history (save/load)
+- [x] Multiple sessions/tabs
+- [x] Keyboard shortcuts modal
+- [x] Export chat as Markdown
+- [x] Share conversation link
 
 ### Low Priority
 - [ ] Plugin system
