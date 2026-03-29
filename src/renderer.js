@@ -52,6 +52,230 @@ let thinkingContent = '';
 let contextMenu = null;
 let draggedFile = null;
 
+let isRecording = false;
+let recognition = null;
+let mediaRecorder = null;
+let audioChunks = [];
+let recordingStartTime = null;
+let recordingTimer = null;
+let transcriptText = '';
+
+const micBtn = document.getElementById('mic-btn');
+const recordingBar = document.getElementById('recording-bar');
+const recordingTimer = document.getElementById('recording-timer');
+const transcriptionPreview = document.getElementById('transcription-preview');
+const stopRecordingBtn = document.getElementById('stop-recording-btn');
+const cancelRecordingBtn = document.getElementById('cancel-recording-btn');
+
+function initSpeechRecognition() {
+  const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SpeechRecognition) {
+    console.warn('Speech recognition not supported');
+    return null;
+  }
+  
+  recognition = new SpeechRecognition();
+  recognition.continuous = true;
+  recognition.interimResults = true;
+  recognition.lang = 'en-US';
+  
+  recognition.onresult = (event) => {
+    let interimTranscript = '';
+    let finalTranscript = '';
+    
+    for (let i = event.resultIndex; i < event.results.length; i++) {
+      const transcript = event.results[i][0].transcript;
+      if (event.results[i].isFinal) {
+        finalTranscript += transcript;
+      } else {
+        interimTranscript += transcript;
+      }
+    }
+    
+    transcriptText = finalTranscript || interimTranscript;
+    transcriptionPreview.textContent = transcriptText || 'Listening...';
+  };
+  
+  recognition.onerror = (event) => {
+    console.error('Speech recognition error:', event.error);
+    if (event.error !== 'no-speech' && event.error !== 'aborted') {
+      showToast('Voice input error: ' + event.error, 'error');
+    }
+  };
+  
+  recognition.onend = () => {
+    if (isRecording && recognition) {
+      try {
+        recognition.start();
+      } catch (e) {
+        console.error('Failed to restart recognition:', e);
+      }
+    }
+  };
+  
+  return recognition;
+}
+
+function startRecording() {
+  if (isRecording) return;
+  
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+    showToast('Microphone not supported in this browser', 'error');
+    return;
+  }
+  
+  navigator.mediaDevices.getUserMedia({ audio: true })
+    .then((stream) => {
+      mediaRecorder = new MediaRecorder(stream);
+      audioChunks = [];
+      
+      mediaRecorder.ondataavailable = (event) => {
+        audioChunks.push(event.data);
+      };
+      
+      mediaRecorder.onstop = () => {
+        stream.getTracks().forEach(track => track.stop());
+      };
+      
+      mediaRecorder.start();
+      isRecording = true;
+      recordingStartTime = Date.now();
+      transcriptText = '';
+      
+      if (!recognition) {
+        initSpeechRecognition();
+      }
+      
+      if (recognition) {
+        try {
+          recognition.start();
+        } catch (e) {
+          console.error('Failed to start speech recognition:', e);
+        }
+      }
+      
+      updateRecordingUI(true);
+      startRecordingTimer();
+      showToast('Recording started', 'info');
+    })
+    .catch((error) => {
+      console.error('Failed to access microphone:', error);
+      showToast('Failed to access microphone', 'error');
+    });
+}
+
+function stopRecording() {
+  if (!isRecording) return;
+  
+  isRecording = false;
+  
+  if (recognition) {
+    try {
+      recognition.stop();
+    } catch (e) {
+      console.error('Failed to stop recognition:', e);
+    }
+  }
+  
+  if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+    mediaRecorder.stop();
+  }
+  
+  stopRecordingTimer();
+  updateRecordingUI(false);
+  
+  if (transcriptText) {
+    messageInput.value = transcriptText;
+    messageInput.dispatchEvent(new Event('input'));
+  }
+  
+  showToast('Recording stopped', 'success');
+}
+
+function cancelRecording() {
+  if (!isRecording) return;
+  
+  isRecording = false;
+  
+  if (recognition) {
+    try {
+      recognition.stop();
+    } catch (e) {
+      console.error('Failed to stop recognition:', e);
+    }
+  }
+  
+  if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+    mediaRecorder.stop();
+  }
+  
+  audioChunks = [];
+  transcriptText = '';
+  stopRecordingTimer();
+  updateRecordingUI(false);
+  showToast('Recording cancelled', 'info');
+}
+
+function startRecordingTimer() {
+  recordingTimer.textContent = '00:00';
+  recordingTimerInterval();
+}
+
+function recordingTimerInterval() {
+  if (!isRecording) return;
+  
+  const elapsed = Math.floor((Date.now() - recordingStartTime) / 1000);
+  const minutes = Math.floor(elapsed / 60).toString().padStart(2, '0');
+  const seconds = (elapsed % 60).toString().padStart(2, '0');
+  recordingTimer.textContent = `${minutes}:${seconds}`;
+  
+  recordingTimer = setTimeout(recordingTimerInterval, 1000);
+}
+
+function stopRecordingTimer() {
+  if (recordingTimer) {
+    clearTimeout(recordingTimer);
+    recordingTimer = null;
+  }
+}
+
+function updateRecordingUI(recording) {
+  if (recording) {
+    recordingBar.classList.remove('hidden');
+    micBtn.classList.add('recording');
+    micBtn.innerHTML = `
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/>
+        <path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
+        <line x1="12" y1="19" x2="12" y2="23"/>
+        <line x1="8" y1="23" x2="16" y2="23"/>
+      </svg>
+    `;
+  } else {
+    recordingBar.classList.add('hidden');
+    micBtn.classList.remove('recording');
+    micBtn.innerHTML = `
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/>
+        <path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
+        <line x1="12" y1="19" x2="12" y2="23"/>
+        <line x1="8" y1="23" x2="16" y2="23"/>
+      </svg>
+    `;
+  }
+}
+
+micBtn.addEventListener('click', () => {
+  if (isRecording) {
+    stopRecording();
+  } else {
+    startRecording();
+  }
+});
+
+stopRecordingBtn.addEventListener('click', stopRecording);
+cancelRecordingBtn.addEventListener('click', cancelRecording);
+
 function getFileIcon(iconType) {
   const icons = {
     file: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><polyline points="13 2 13 9 20 9"/></svg>',
