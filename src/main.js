@@ -916,3 +916,31 @@ ipcMain.handle('clear-autosave', async () => {
     return { success: false, error: error.message };
   }
 });
+
+ipcMain.handle('show-save-dialog', async (event, options) => {
+  try {
+    const result = await dialog.showSaveDialog(mainWindow, {
+      title: options.title || 'Save File',
+      defaultPath: options.defaultPath || 'chat-export.md',
+      filters: options.filters || [
+        { name: 'Markdown', extensions: ['md'] },
+        { name: 'Text', extensions: ['txt'] },
+        { name: 'All Files', extensions: ['*'] }
+      ]
+    });
+    return result;
+  } catch (error) {
+    console.error('Error showing save dialog:', error);
+    return { canceled: true, error: error.message };
+  }
+});
+
+ipcMain.handle('write-file', async (event, { filePath, content }) => {
+  try {
+    fs.writeFileSync(filePath, content, 'utf-8');
+    return { success: true };
+  } catch (error) {
+    console.error('Error writing file:', error);
+    return { success: false, error: error.message };
+  }
+});

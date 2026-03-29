@@ -56,6 +56,11 @@ const toastContainer = document.getElementById('toast-container');
 const sidebarTabs = document.querySelectorAll('.sidebar-tab');
 const sidebarPanels = document.querySelectorAll('.sidebar-panel');
 
+const exportModal = document.getElementById('export-modal');
+const closeExportBtn = document.getElementById('close-export');
+const exportCancelBtn = document.getElementById('export-cancel');
+const exportConfirmBtn = document.getElementById('export-confirm');
+
 let assistantMsg = null;
 let thinkingMsg = null;
 let fullResponse = '';
@@ -2291,6 +2296,7 @@ loadWorkspaceFiles();
 showMCPServers();
 initChatHistory();
 initTabs();
+initExport();
 
 const saveChatBtn = document.getElementById('save-chat-btn');
 const loadChatBtn = document.getElementById('load-chat-btn');
@@ -2564,6 +2570,149 @@ checkForAutosave();
 
 function initChatHistory() {
   loadChatHistoryList();
+}
+
+function initExport() {
+  const exportChatBtn = document.getElementById('export-chat-btn');
+  
+  exportChatBtn.addEventListener('click', () => {
+    exportModal.classList.remove('hidden');
+  });
+  
+  closeExportBtn.addEventListener('click', closeExportModalFn);
+  exportModal.querySelector('.modal-backdrop').addEventListener('click', closeExportModalFn);
+  exportCancelBtn.addEventListener('click', closeExportModalFn);
+  exportConfirmBtn.addEventListener('click', handleExportConfirm);
+}
+
+function closeExportModalFn() {
+  exportModal.classList.add('hidden');
+}
+
+function formatTime(date) {
+  return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+}
+
+function formatDate(date) {
+  return date.toLocaleDateString([], { year: 'numeric', month: 'long', day: 'numeric' });
+}
+
+function escapeMarkdown(text) {
+  const specialChars = /([\\`*_~\[\]()#+\-.|])/g;
+  return text.replace(specialChars, '\\$1');
+}
+
+function exportChatAsMarkdown(tab, includeTimestamps, includeCode) {
+  if (!tab || !tab.messages || tab.messages.length === 0) {
+    return null;
+  }
+  
+  const now = new Date();
+  const dateStr = formatDate(now);
+  const timeStr = formatTime(now);
+  
+  let markdown = `# Chat Export - ${dateStr}\n\n`;
+  markdown += `## Session Info\n`;
+  markdown += `- Model: ${currentModel}\n`;
+  markdown += `- Date: ${dateStr} at ${timeStr}\n`;
+  markdown += `- Messages: ${tab.messages.length}\n`;
+  markdown += `\n---\n\n`;
+  
+  tab.messages.forEach((msg, index) => {
+    const role = msg.role === 'user' ? 'User' : 'Assistant';
+    const time = msg.timestamp ? formatTime(new Date(msg.timestamp)) : timeStr;
+    
+    if (includeTimestamps) {
+      markdown += `### ${role} (${time})\n\n`;
+    } else {
+      markdown += `### ${role}\n\n`;
+    }
+    
+    if (includeCode) {
+      let content = msg.content;
+      content = content.replace(/```(\w*)\n([\s\S]*?)```/g, (match, lang, code) => {
+        return `\`\`\`${lang}\n${code}\n\`\`\``;
+      });
+      markdown += content + '\n\n';
+    } else {
+      markdown += escapeMarkdown(msg.content) + '\n\n';
+    }
+    
+    markdown += `---\n\n`;
+  });
+  
+  return markdown;
+}
+
+async function handleExportConfirm() {
+  const scope = document.querySelector('input[name="export-scope"]:checked').value;
+  const format = document.querySelector('input[name="export-format"]:checked').value;
+  const includeTimestamps = document.getElementById('export-include-timestamps').checked;
+  const includeCode = document.getElementById('export-include-code').checked;
+  
+  const tabsToExport = scope === 'current' 
+    ? [tabs.find(t => t.id === activeTabId)]
+    : tabs.filter(t => t.messages && t.messages.length > 0);
+  
+  if (!tabsToExport || tabsToExport.length === 0 || (tabsToExport.length === 1 && !tabsToExport[0])) {
+    showToast('No messages to export', 'warning');
+    return;
+  }
+  
+  closeExportModalFn();
+  
+  try {
+    if (format === 'combined' && tabsToExport.length > 1) {
+      let combinedMarkdown = '';
+      const now = new Date();
+      combinedMarkdown += `# Chat Export - ${formatDate(now)}\n\n`;
+      combinedMarkdown += `## Session Info\n`;
+      combinedMarkdown += `- Model: ${currentModel}\n`;
+      combinedMarkdown += `- Date: ${formatDate(now)} at ${formatTime(now)}\n`;
+      combinedMarkdown += `- Tabs: ${tabsToExport.length}\n`;
+      combinedMarkdown += `- Total Messages: ${tabsToExport.reduce((sum, t) => sum + (t.messages?.length || 0), 0)}\n`;
+      combinedMarkdown += `\n---\n\n`;
+      
+      tabsToExport.forEach((tab, index) => {
+        combinedMarkdown += `## Tab ${index + 1}: ${escapeMarkdown(tab.title || 'Untitled')}\n\n`;
+        const tabMarkdown = exportChatAsMarkdown(tab, includeTimestamps, includeCode);
+        if (tabMarkdown) {
+          combinedMarkdown += tabMarkdown;
+        }
+      });
+      
+      const result = await window.maxi.showSaveDialog({
+        title: 'Export Chat',
+        defaultPath: `chat-export-${Date.now()}.md`
+      });
+      
+      if (!result.canceled && result.filePath) {
+        await window.maxi.writeFile({ filePath: result.filePath, content: combinedMarkdown });
+        showToast('Chat exported successfully', 'success');
+      }
+    } else {
+      for (const tab of tabsToExport) {
+        if (!tab) continue;
+        
+        const tabMarkdown = exportChatAsMarkdown(tab, includeTimestamps, includeCode);
+        if (!tabMarkdown) continue;
+        
+        const tabTitle = tab.title ? tab.title.replace(/[^a-z0-9]/gi, '-').substring(0, 30) : 'untitled';
+        const result = await window.maxi.showSaveDialog({
+          title: 'Export Chat',
+          defaultPath: `chat-${tabTitle}-${Date.now()}.md`
+        });
+        
+        if (!result.canceled && result.filePath) {
+          await window.maxi.writeFile({ filePath: result.filePath, content: tabMarkdown });
+        }
+      }
+      showToast('Chat exported successfully', 'success');
+    }
+  } catch (error) {
+    console.error('Export error:', error);
+    showToast('Export failed: ' + error.message, 'error');
+  }
 }
 
 function startAutoSave() {

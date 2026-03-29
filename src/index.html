@@ -42,6 +42,13 @@
             <polyline points="12 6 12 12 16 14"/>
           </svg>
         </button>
+        <button id="export-chat-btn" class="icon-btn" title="Export Chat">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+            <polyline points="7 10 12 15 17 10"/>
+            <line x1="12" y1="15" x2="12" y2="3"/>
+          </svg>
+        </button>
         <button id="settings-btn" class="icon-btn" title="Settings">
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <circle cx="12" cy="12" r="3"/>
@@ -550,6 +557,67 @@
         </div>
         <div class="modal-body shortcuts-body">
           <div id="shortcuts-list" class="shortcuts-list"></div>
+        </div>
+      </div>
+    </div>
+
+    <div id="export-modal" class="modal hidden">
+      <div class="modal-backdrop"></div>
+      <div class="modal-content export-modal-content">
+        <div class="modal-header">
+          <h2>Export Chat</h2>
+          <button id="close-export" class="icon-btn">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <line x1="18" y1="6" x2="6" y2="18"/>
+              <line x1="6" y1="6" x2="18" y2="18"/>
+            </svg>
+          </button>
+        </div>
+        <div class="modal-body">
+          <div class="export-options">
+            <div class="export-option-group">
+              <label class="export-option-label">Export Scope</label>
+              <div class="export-radio-group">
+                <label class="export-radio">
+                  <input type="radio" name="export-scope" value="current" checked>
+                  <span>Current Tab</span>
+                </label>
+                <label class="export-radio">
+                  <input type="radio" name="export-scope" value="all">
+                  <span>All Tabs</span>
+                </label>
+              </div>
+            </div>
+            <div class="export-option-group">
+              <label class="export-option-label">Format</label>
+              <div class="export-radio-group">
+                <label class="export-radio">
+                  <input type="radio" name="export-format" value="combined" checked>
+                  <span>Combined (single file)</span>
+                </label>
+                <label class="export-radio">
+                  <input type="radio" name="export-format" value="separate">
+                  <span>Separate files</span>
+                </label>
+              </div>
+            </div>
+            <div class="export-option-group">
+              <label class="export-checkbox">
+                <input type="checkbox" id="export-include-timestamps" checked>
+                <span>Include timestamps</span>
+              </label>
+            </div>
+            <div class="export-option-group">
+              <label class="export-checkbox">
+                <input type="checkbox" id="export-include-code" checked>
+                <span>Preserve code block syntax</span>
+              </label>
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button id="export-cancel" class="btn secondary">Cancel</button>
+          <button id="export-confirm" class="btn primary">Export</button>
         </div>
       </div>
     </div>

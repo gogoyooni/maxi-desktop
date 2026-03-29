@@ -33,6 +33,9 @@ contextBridge.exposeInMainWorld('maxi', {
   loadAutosave: () => ipcRenderer.invoke('load-autosave'),
   clearAutosave: () => ipcRenderer.invoke('clear-autosave'),
   
+  showSaveDialog: (options) => ipcRenderer.invoke('show-save-dialog', options),
+  writeFile: (data) => ipcRenderer.invoke('write-file', data),
+  
   onChatStream: (callback) => {
     ipcRenderer.on('chat-stream', (_, content) => callback(content));
   },
