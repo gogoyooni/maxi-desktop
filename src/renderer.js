@@ -3615,3 +3615,482 @@ window.addEventListener('beforeunload', async () => {
     activeTabId = currentActiveId;
   }
 });
+
+let teamSessions = [];
+let sessionTags = [];
+let sessionNotes = {};
+let messageComments = {};
+let currentCommentMessageIndex = null;
+let selectedTags = [];
+
+const shareSessionBtn = document.getElementById('share-session-btn');
+const importSessionBtn = document.getElementById('import-session-btn');
+const maxiImportInput = document.getElementById('maxi-import-input');
+const teamSessionsList = document.getElementById('team-sessions-list');
+const sessionTagsContainer = document.getElementById('session-tags');
+const sessionNotesInput = document.getElementById('session-notes-input');
+const commentsModal = document.getElementById('comments-modal');
+const closeCommentsBtn = document.getElementById('close-comments');
+const commentsList = document.getElementById('comments-list');
+const newCommentInput = document.getElementById('new-comment-input');
+const addCommentBtn = document.getElementById('add-comment-btn');
+
+shareSessionBtn.addEventListener('click', exportSessionAsMaxi);
+importSessionBtn.addEventListener('click', () => maxiImportInput.click());
+maxiImportInput.addEventListener('change', handleMaxiImport);
+
+function initTeam() {
+  loadTeamSessions();
+  loadSessionNotes();
+  initSessionTags();
+  initNotesCollapsible();
+  initCommentsModal();
+}
+
+function initSessionTags() {
+  sessionTagsContainer.querySelectorAll('.tag').forEach(tag => {
+    tag.addEventListener('click', () => {
+      const tagName = tag.dataset.tag;
+      tag.classList.toggle('active');
+      if (tag.classList.contains('active')) {
+        if (!selectedTags.includes(tagName)) {
+          selectedTags.push(tagName);
+        }
+      } else {
+        selectedTags = selectedTags.filter(t => t !== tagName);
+      }
+      updateSessionTags();
+    });
+  });
+}
+
+function initNotesCollapsible() {
+  document.querySelectorAll('.team-section-header.collapsible').forEach(header => {
+    header.addEventListener('click', () => {
+      const target = document.getElementById(header.dataset.target);
+      header.classList.toggle('collapsed');
+      target.classList.toggle('collapsed');
+    });
+  });
+}
+
+function initCommentsModal() {
+  closeCommentsBtn.addEventListener('click', closeCommentsModalFn);
+  commentsModal.querySelector('.modal-backdrop').addEventListener('click', closeCommentsModalFn);
+  addCommentBtn.addEventListener('click', addComment);
+  newCommentInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      addComment();
+    }
+  });
+}
+
+function closeCommentsModalFn() {
+  commentsModal.classList.add('hidden');
+  currentCommentMessageIndex = null;
+}
+
+function updateSessionTags() {
+  const activeTab = tabs.find(t => t.id === activeTabId);
+  if (activeTab) {
+    activeTab.tags = [...selectedTags];
+  }
+  saveSessionNotes();
+}
+
+async function exportSessionAsMaxi() {
+  const activeTab = tabs.find(t => t.id === activeTabId);
+  if (!activeTab || !activeTab.messages || activeTab.messages.length === 0) {
+    showToast('No messages to share', 'warning');
+    return;
+  }
+
+  const sessionData = {
+    version: '1.0',
+    type: 'maxi-session',
+    exportedAt: new Date().toISOString(),
+    title: activeTab.title || 'Shared Session',
+    model: currentModel,
+    tags: selectedTags,
+    notes: sessionNotes[activeTabId] || '',
+    messages: activeTab.messages,
+    comments: messageComments[activeTabId] || {}
+  };
+
+  const jsonContent = JSON.stringify(sessionData, null, 2);
+  const fileName = (activeTab.title || 'session').replace(/[^a-z0-9]/gi, '_').substring(0, 30) + '_' + Date.now() + '.maxi';
+
+  try {
+    const result = await window.maxi.showSaveDialog({
+      title: 'Export Session',
+      defaultPath: fileName,
+      filters: [{ name: 'Maxi Session', extensions: ['maxi'] }]
+    });
+
+    if (!result.canceled && result.filePath) {
+      await window.maxi.writeFile({ filePath: result.filePath, content: jsonContent });
+      showToast('Session exported successfully', 'success');
+      addToTeamSessions({
+        id: Date.now().toString(),
+        title: activeTab.title || 'Shared Session',
+        tags: [...selectedTags],
+        exportedAt: new Date().toISOString(),
+        filePath: result.filePath,
+        messageCount: activeTab.messages.length,
+        commentCount: Object.keys(messageComments[activeTabId] || {}).length
+      });
+    }
+  } catch (error) {
+    console.error('Export error:', error);
+    showToast('Failed to export session: ' + error.message, 'error');
+  }
+}
+
+async function handleMaxiImport(e) {
+  const file = e.target.files[0];
+  if (!file) return;
+
+  try {
+    const reader = new FileReader();
+    reader.onload = async (event) => {
+      try {
+        const sessionData = JSON.parse(event.target.result);
+        
+        if (sessionData.type !== 'maxi-session') {
+          showToast('Invalid .maxi file format', 'error');
+          return;
+        }
+
+        const newTabId = createTab(sessionData.title || 'Imported Session');
+        const newTab = tabs.find(t => t.id === newTabId);
+        
+        if (newTab) {
+          newTab.messages = sessionData.messages || [];
+          newTab.tags = sessionData.tags || [];
+          selectedTags = sessionData.tags || [];
+          sessionNotes[newTabId] = sessionData.notes || '';
+          
+          if (sessionData.comments) {
+            messageComments[newTabId] = sessionData.comments;
+          }
+
+          messages = newTab.messages;
+          currentModel = sessionData.model || currentModel;
+          modelSelector.value = currentModel;
+          
+          renderMessages();
+          renderTabs();
+          updateTagsUI();
+          sessionNotesInput.value = sessionData.notes || '';
+          renderTeamSessionsList();
+          
+          showToast('Session imported successfully', 'success');
+        }
+      } catch (parseError) {
+        console.error('Parse error:', parseError);
+        showToast('Failed to parse .maxi file', 'error');
+      }
+    };
+    reader.readAsText(file);
+  } catch (error) {
+    console.error('Import error:', error);
+    showToast('Failed to import session', 'error');
+  }
+
+  e.target.value = '';
+}
+
+function addToTeamSessions(session) {
+  teamSessions.unshift(session);
+  if (teamSessions.length > 50) {
+    teamSessions = teamSessions.slice(0, 50);
+  }
+  saveTeamSessions();
+  renderTeamSessionsList();
+}
+
+function saveTeamSessions() {
+  try {
+    localStorage.setItem('teamSessions', JSON.stringify(teamSessions));
+  } catch (error) {
+    console.error('Failed to save team sessions:', error);
+  }
+}
+
+function loadTeamSessions() {
+  try {
+    const saved = localStorage.getItem('teamSessions');
+    if (saved) {
+      teamSessions = JSON.parse(saved);
+    }
+  } catch (error) {
+    console.error('Failed to load team sessions:', error);
+    teamSessions = [];
+  }
+  renderTeamSessionsList();
+}
+
+function renderTeamSessionsList() {
+  if (teamSessions.length === 0) {
+    teamSessionsList.innerHTML = `
+      <div class="team-session-empty" style="padding: 1rem; text-align: center; color: var(--text-muted); font-size: 0.8125rem;">
+        No shared sessions yet
+      </div>
+    `;
+    return;
+  }
+
+  teamSessionsList.innerHTML = teamSessions.map(session => `
+    <div class="team-session-item" data-id="${session.id}">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
+      </svg>
+      <span class="session-title">${escapeHtml(session.title || 'Untitled')}</span>
+      ${session.commentCount > 0 ? `<span class="comment-badge">${session.commentCount}</span>` : ''}
+    </div>
+  `).join('');
+
+  teamSessionsList.querySelectorAll('.team-session-item').forEach(item => {
+    item.addEventListener('click', () => {
+      const session = teamSessions.find(s => s.id === item.dataset.id);
+      if (session && session.filePath) {
+        loadTeamSessionFile(session.filePath);
+      }
+    });
+  });
+}
+
+async function loadTeamSessionFile(filePath) {
+  try {
+    const result = await window.maxi.readFile(filePath);
+    if (result.error) {
+      showToast('Failed to load session file', 'error');
+      return;
+    }
+
+    const sessionData = JSON.parse(result.content);
+    
+    const newTabId = createTab(sessionData.title || 'Loaded Session');
+    const newTab = tabs.find(t => t.id === newTabId);
+    
+    if (newTab) {
+      newTab.messages = sessionData.messages || [];
+      newTab.tags = sessionData.tags || [];
+      selectedTags = sessionData.tags || [];
+      sessionNotes[newTabId] = sessionData.notes || '';
+      
+      if (sessionData.comments) {
+        messageComments[newTabId] = sessionData.comments;
+      }
+
+      messages = newTab.messages;
+      renderMessages();
+      renderTabs();
+      updateTagsUI();
+      sessionNotesInput.value = sessionData.notes || '';
+      
+      showToast('Session loaded successfully', 'success');
+    }
+  } catch (error) {
+    console.error('Load session error:', error);
+    showToast('Failed to load session', 'error');
+  }
+}
+
+function saveSessionNotes() {
+  const activeTab = tabs.find(t => t.id === activeTabId);
+  if (activeTab && sessionNotesInput) {
+    sessionNotes[activeTab.id] = sessionNotesInput.value;
+    try {
+      localStorage.setItem('sessionNotes', JSON.stringify(sessionNotes));
+    } catch (error) {
+      console.error('Failed to save session notes:', error);
+    }
+  }
+}
+
+function loadSessionNotes() {
+  try {
+    const saved = localStorage.getItem('sessionNotes');
+    if (saved) {
+      sessionNotes = JSON.parse(saved);
+    }
+  } catch (error) {
+    console.error('Failed to load session notes:', error);
+    sessionNotes = {};
+  }
+
+  const activeTab = tabs.find(t => t.id === activeTabId);
+  if (activeTab && sessionNotesInput) {
+    sessionNotesInput.value = sessionNotes[activeTab.id] || '';
+  }
+}
+
+sessionNotesInput.addEventListener('input', saveSessionNotes);
+
+function updateTagsUI() {
+  sessionTagsContainer.querySelectorAll('.tag').forEach(tag => {
+    if (selectedTags.includes(tag.dataset.tag)) {
+      tag.classList.add('active');
+    } else {
+      tag.classList.remove('active');
+    }
+  });
+}
+
+function addMessageCommentIndicator(msgDiv, messageIndex) {
+  if (msgDiv.querySelector('.message-comment-indicator')) return;
+  
+  const indicator = document.createElement('div');
+  indicator.className = 'message-comment-indicator';
+  indicator.innerHTML = `<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>`;
+  
+  indicator.addEventListener('click', (e) => {
+    e.stopPropagation();
+    openCommentsModal(messageIndex);
+  });
+  
+  msgDiv.style.position = 'relative';
+  msgDiv.appendChild(indicator);
+}
+
+function openCommentsModal(messageIndex) {
+  currentCommentMessageIndex = messageIndex;
+  const activeTab = tabs.find(t => t.id === activeTabId);
+  if (!activeTab) return;
+  
+  const comments = messageComments[activeTab.id]?.[messageIndex] || [];
+  
+  if (comments.length === 0) {
+    commentsList.innerHTML = `
+      <div style="padding: 1rem; text-align: center; color: var(--text-muted); font-size: 0.875rem;">
+        No comments yet
+      </div>
+    `;
+  } else {
+    commentsList.innerHTML = comments.map((comment, i) => `
+      <div class="comment-item">
+        <div class="comment-avatar">${(comment.author || 'U').charAt(0).toUpperCase()}</div>
+        <div class="comment-content">
+          <div class="comment-text">${escapeHtml(comment.text)}</div>
+          <div class="comment-time">${comment.time || 'Just now'}</div>
+        </div>
+      </div>
+    `).join('');
+  }
+  
+  newCommentInput.value = '';
+  commentsModal.classList.remove('hidden');
+  newCommentInput.focus();
+}
+
+function addComment() {
+  const text = newCommentInput.value.trim();
+  if (!text || currentCommentMessageIndex === null) return;
+  
+  const activeTab = tabs.find(t => t.id === activeTabId);
+  if (!activeTab) return;
+  
+  if (!messageComments[activeTab.id]) {
+    messageComments[activeTab.id] = {};
+  }
+  
+  if (!messageComments[activeTab.id][currentCommentMessageIndex]) {
+    messageComments[activeTab.id][currentCommentMessageIndex] = [];
+  }
+  
+  messageComments[activeTab.id][currentCommentMessageIndex].push({
+    text: text,
+    author: 'User',
+    time: new Date().toLocaleString()
+  });
+  
+  newCommentInput.value = '';
+  openCommentsModal(currentCommentMessageIndex);
+  
+  updateSessionCommentCount();
+  showToast('Comment added', 'success');
+}
+
+function updateSessionCommentCount() {
+  const activeTab = tabs.find(t => t.id === activeTabId);
+  if (!activeTab) return;
+  
+  const comments = messageComments[activeTab.id] || {};
+  const totalComments = Object.values(comments).reduce((sum, arr) => sum + arr.length, 0);
+  
+  const existingSession = teamSessions.find(s => s.title === activeTab.title);
+  if (existingSession) {
+    existingSession.commentCount = totalComments;
+    saveTeamSessions();
+    renderTeamSessionsList();
+  }
+}
+
+function renderMessages() {
+  chatMessages.innerHTML = '';
+  
+  if (messages.length === 0) {
+    chatMessages.innerHTML = `
+      <div class="welcome-state">
+        <div class="welcome-icon">
+          <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+            <path d="M12 2L2 7l10 5 10-5-10-5z"/>
+            <path d="M2 17l10 5 10-5"/>
+            <path d="M2 12l10 5 10-5"/>
+          </svg>
+        </div>
+        <h2>Welcome to Maxi</h2>
+        <p>Ask me anything, or drag files into the chat to get started.</p>
+      </div>
+    `;
+    return;
+  }
+  
+  const activeTab = tabs.find(t => t.id === activeTabId);
+  const comments = activeTab ? (messageComments[activeTab.id] || {}) : {};
+  
+  messages.forEach((msg, index) => {
+    const msgDiv = addMessage(msg.role, msg.content, 'text', []);
+    
+    if (comments[index] && comments[index].length > 0) {
+      msgDiv.classList.add('has-comments');
+      addMessageCommentIndicator(msgDiv, index);
+    }
+  });
+}
+
+const originalAddMessage = addMessage;
+addMessage = function(role, content, type = 'text', images = []) {
+  const msgDiv = originalAddMessage(role, content, type, images);
+  
+  const activeTab = tabs.find(t => t.id === activeTabId);
+  if (activeTab && messages.length > 0) {
+    const messageIndex = messages.length - 1;
+    const comments = messageComments[activeTab.id]?.[messageIndex];
+    if (comments && comments.length > 0) {
+      msgDiv.classList.add('has-comments');
+      addMessageCommentIndicator(msgDiv, messageIndex);
+    }
+  }
+  
+  return msgDiv;
+};
+
+document.querySelectorAll('.sidebar-tab').forEach(tab => {
+  tab.addEventListener('click', () => {
+    const tabName = tab.dataset.tab;
+    if (tabName === 'team') {
+      const activeTab = tabs.find(t => t.id === activeTabId);
+      if (activeTab) {
+        selectedTags = activeTab.tags || [];
+        updateTagsUI();
+        sessionNotesInput.value = sessionNotes[activeTab.id] || '';
+      }
+      renderTeamSessionsList();
+    }
+  });
+});
+
+initTeam();

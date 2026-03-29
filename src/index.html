@@ -130,6 +130,15 @@
             </svg>
             Plugins
           </button>
+          <button class="sidebar-tab" data-tab="team">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
+              <circle cx="9" cy="7" r="4"/>
+              <path d="M23 21v-2a4 4 0 0 0-3-3.87"/>
+              <path d="M16 3.13a4 4 0 0 1 0 7.75"/>
+            </svg>
+            Team
+          </button>
         </div>
 
         <div id="files-panel" class="sidebar-panel active">
@@ -208,6 +217,60 @@
             </button>
           </div>
           <div id="plugins-list" class="plugins-list"></div>
+        </div>
+
+        <div id="team-panel" class="sidebar-panel">
+          <div class="panel-header">
+            <span>Team</span>
+          </div>
+          <div class="team-actions">
+            <button id="share-session-btn" class="btn secondary team-btn">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <circle cx="18" cy="5" r="3"/>
+                <circle cx="6" cy="12" r="3"/>
+                <circle cx="18" cy="19" r="3"/>
+                <line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/>
+                <line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/>
+              </svg>
+              Share Session
+            </button>
+            <button id="import-session-btn" class="btn secondary team-btn">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                <polyline points="17 8 12 3 7 8"/>
+                <line x1="12" y1="3" x2="12" y2="15"/>
+              </svg>
+              Import Session
+            </button>
+          </div>
+          <div class="team-section">
+            <div class="team-section-header">
+              <span>Your Sessions</span>
+            </div>
+            <div id="team-sessions-list" class="team-sessions-list"></div>
+          </div>
+          <div class="team-section">
+            <div class="team-section-header">
+              <span>Session Tags</span>
+            </div>
+            <div id="session-tags" class="session-tags">
+              <span class="tag" data-tag="bug">bug</span>
+              <span class="tag" data-tag="feature">feature</span>
+              <span class="tag" data-tag="review">review</span>
+              <span class="tag" data-tag="urgent">urgent</span>
+            </div>
+          </div>
+          <div class="team-section">
+            <div class="team-section-header collapsible" data-target="session-notes-content">
+              <span>Session Notes</span>
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <polyline points="6 9 12 15 18 9"/>
+              </svg>
+            </div>
+            <div id="session-notes-content" class="session-notes-content">
+              <textarea id="session-notes-input" placeholder="Add notes about this session..."></textarea>
+            </div>
+          </div>
         </div>
       </aside>
 
@@ -763,12 +826,35 @@
       </div>
     </div>
 
+    <div id="comments-modal" class="modal hidden">
+      <div class="modal-backdrop"></div>
+      <div class="modal-content comments-modal-content">
+        <div class="modal-header">
+          <h2>Message Comments</h2>
+          <button id="close-comments" class="icon-btn">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <line x1="18" y1="6" x2="6" y2="18"/>
+              <line x1="6" y1="6" x2="18" y2="18"/>
+            </svg>
+          </button>
+        </div>
+        <div class="modal-body">
+          <div id="comments-list" class="comments-list"></div>
+          <div class="add-comment">
+            <textarea id="new-comment-input" placeholder="Add a comment..."></textarea>
+            <button id="add-comment-btn" class="btn primary">Add Comment</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <div id="toast-container"></div>
 
     <input type="file" id="file-input" hidden multiple>
     <input type="file" id="image-input" hidden accept="image/jpeg,image/png,image/gif,image/webp,image/svg+xml">
     <input type="file" id="workspace-input" hidden webkitdirectory>
     <input type="file" id="ssh-key-input" hidden>
+    <input type="file" id="maxi-import-input" hidden accept=".maxi,.json">
 
     <div id="image-lightbox" class="lightbox hidden">
       <button id="lightbox-close" class="lightbox-close">
