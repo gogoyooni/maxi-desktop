@@ -14,7 +14,14 @@ const chatMessages = document.getElementById('chat-messages');
 const messageInput = document.getElementById('message-input');
 const sendBtn = document.getElementById('send-btn');
 const attachBtn = document.getElementById('attach-btn');
+const imageBtn = document.getElementById('image-btn');
 const fileInput = document.getElementById('file-input');
+const imageInput = document.getElementById('image-input');
+const lightbox = document.getElementById('image-lightbox');
+const lightboxImage = document.getElementById('lightbox-image');
+const lightboxFilename = document.getElementById('lightbox-filename');
+const lightboxDimensions = document.getElementById('lightbox-dimensions');
+const lightboxClose = document.getElementById('lightbox-close');
 const tokenWarning = document.getElementById('token-warning');
 const typingIndicator = document.getElementById('typing-indicator');
 const skillsList = document.getElementById('skills-list');
@@ -51,18 +58,20 @@ let fullResponse = '';
 let thinkingContent = '';
 let contextMenu = null;
 let draggedFile = null;
+let attachedImages = [];
+let uploadedImages = [];
 
 let isRecording = false;
 let recognition = null;
 let mediaRecorder = null;
 let audioChunks = [];
 let recordingStartTime = null;
-let recordingTimer = null;
+let recordingTimerId = null;
 let transcriptText = '';
 
 const micBtn = document.getElementById('mic-btn');
 const recordingBar = document.getElementById('recording-bar');
-const recordingTimer = document.getElementById('recording-timer');
+const recordingTimerEl = document.getElementById('recording-timer');
 const transcriptionPreview = document.getElementById('transcription-preview');
 const stopRecordingBtn = document.getElementById('stop-recording-btn');
 const cancelRecordingBtn = document.getElementById('cancel-recording-btn');
@@ -217,7 +226,7 @@ function cancelRecording() {
 }
 
 function startRecordingTimer() {
-  recordingTimer.textContent = '00:00';
+  recordingTimerEl.textContent = '00:00';
   recordingTimerInterval();
 }
 
@@ -227,15 +236,15 @@ function recordingTimerInterval() {
   const elapsed = Math.floor((Date.now() - recordingStartTime) / 1000);
   const minutes = Math.floor(elapsed / 60).toString().padStart(2, '0');
   const seconds = (elapsed % 60).toString().padStart(2, '0');
-  recordingTimer.textContent = `${minutes}:${seconds}`;
+  recordingTimerEl.textContent = `${minutes}:${seconds}`;
   
-  recordingTimer = setTimeout(recordingTimerInterval, 1000);
+  recordingTimerId = setTimeout(recordingTimerInterval, 1000);
 }
 
 function stopRecordingTimer() {
-  if (recordingTimer) {
-    clearTimeout(recordingTimer);
-    recordingTimer = null;
+  if (recordingTimerId) {
+    clearTimeout(recordingTimerId);
+    recordingTimerId = null;
   }
 }
 
@@ -553,7 +562,7 @@ function escapeHtml(text) {
   return div.innerHTML;
 }
 
-function addMessage(role, content, type = 'text') {
+function addMessage(role, content, type = 'text', images = []) {
   const msgDiv = document.createElement('div');
   msgDiv.className = `message ${role}-message`;
   
@@ -599,8 +608,35 @@ function addMessage(role, content, type = 'text') {
     `;
   } else {
     const time = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    const imagesHtml = images && images.length > 0 ? `
+      <div class="message-images">
+        ${images.map((img, i) => `
+          <div class="message-image" data-index="${i}">
+            <img src="${img.dataUrl}" alt="${img.name}">
+            <div class="image-meta">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <rect x="3" y="3" width="18" height="18" rx="2"/>
+                <circle cx="8.5" cy="8.5" r="1.5"/>
+                <path d="M21 15l-5-5L5 21"/>
+              </svg>
+              <span>${img.name}</span>
+              <span>${img.width}x${img.height}</span>
+              <span>${formatFileSize(img.size)}</span>
+              <button class="remove-image-btn" title="Remove">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <line x1="18" y1="6" x2="6" y2="18"/>
+                  <line x1="6" y1="6" x2="18" y2="18"/>
+                </svg>
+              </button>
+            </div>
+          </div>
+        `).join('')}
+      </div>
+    ` : '';
+    
     msgDiv.innerHTML = `
       <div class="message-content">${role === 'assistant' ? parseMarkdown(content) : escapeHtml(content)}</div>
+      ${imagesHtml}
       ${role === 'assistant' ? `
       <div class="message-footer">
         <span class="message-time">${time}</span>
@@ -621,6 +657,28 @@ function addMessage(role, content, type = 'text') {
         showToast('Copied to clipboard', 'success');
       });
     }
+    
+    msgDiv.querySelectorAll('.message-image').forEach((imgEl, i) => {
+      imgEl.addEventListener('click', (e) => {
+        if (!e.target.closest('.remove-image-btn')) {
+          openLightbox(images[i]);
+        }
+      });
+    });
+    
+    msgDiv.querySelectorAll('.remove-image-btn').forEach((btn, i) => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const imageEl = msgDiv.querySelectorAll('.message-image')[i];
+        if (imageEl) {
+          imageEl.remove();
+          if (msgDiv.querySelectorAll('.message-image').length === 0) {
+            const imagesContainer = msgDiv.querySelector('.message-images');
+            if (imagesContainer) imagesContainer.remove();
+          }
+        }
+      });
+    });
   }
   
   chatMessages.appendChild(msgDiv);
@@ -780,7 +838,24 @@ messageInput.addEventListener('input', () => {
   charCount.textContent = messageInput.value.length;
   messageInput.style.height = 'auto';
   messageInput.style.height = Math.min(messageInput.scrollHeight, 150) + 'px';
-  sendBtn.disabled = !messageInput.value.trim() || isStreaming;
+  const hasContent = messageInput.value.trim() || attachedFiles.length > 0 || attachedImages.length > 0;
+  sendBtn.disabled = !hasContent || isStreaming;
+});
+
+document.addEventListener('paste', (e) => {
+  const items = e.clipboardData?.items;
+  if (!items) return;
+
+  for (const item of items) {
+    if (item.type.startsWith('image/')) {
+      e.preventDefault();
+      const file = item.getAsFile();
+      if (file) {
+        handleImageFile(file);
+      }
+      break;
+    }
+  }
 });
 
 attachBtn.addEventListener('click', () => {
@@ -793,6 +868,96 @@ fileInput.addEventListener('change', () => {
     addAttachedFile(file);
   });
 });
+
+imageBtn.addEventListener('click', () => {
+  imageInput.click();
+});
+
+imageInput.addEventListener('change', () => {
+  const files = Array.from(imageInput.files);
+  files.forEach(file => {
+    handleImageFile(file);
+  });
+  imageInput.value = '';
+});
+
+function handleImageFile(file) {
+  if (!file.type.startsWith('image/')) {
+    showToast('Only image files are supported', 'error');
+    return;
+  }
+
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    const img = new Image();
+    img.onload = () => {
+      const imageData = {
+        name: file.name,
+        type: file.type,
+        size: file.size,
+        width: img.width,
+        height: img.height,
+        dataUrl: e.target.result,
+        isImage: true
+      };
+      attachedImages.push(imageData);
+      renderImagePreviews();
+      showToast(`Image attached: ${file.name}`, 'success');
+    };
+    img.src = e.target.result;
+  };
+  reader.onerror = () => {
+    showToast('Failed to read image file', 'error');
+  };
+  reader.readAsDataURL(file);
+}
+
+function renderImagePreviews() {
+  let previewContainer = document.querySelector('.attached-image-preview');
+  
+  if (attachedImages.length === 0) {
+    if (previewContainer) {
+      previewContainer.remove();
+    }
+    return;
+  }
+
+  if (!previewContainer) {
+    previewContainer = document.createElement('div');
+    previewContainer.className = 'attached-image-preview';
+    const inputRow = document.getElementById('input-row');
+    inputRow.parentNode.insertBefore(previewContainer, inputRow);
+  }
+
+  previewContainer.innerHTML = attachedImages.map((img, index) => `
+    <div class="image-preview-chip" data-index="${index}">
+      <img src="${img.dataUrl}" alt="${img.name}">
+      <span>${formatFileSize(img.size)}</span>
+      <span class="remove-image" data-index="${index}">
+        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3">
+          <line x1="18" y1="6" x2="6" y2="18"/>
+          <line x1="6" y1="6" x2="18" y2="18"/>
+        </svg>
+      </span>
+    </div>
+  `).join('');
+
+  previewContainer.querySelectorAll('.remove-image').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      const index = parseInt(e.currentTarget.dataset.index);
+      attachedImages.splice(index, 1);
+      renderImagePreviews();
+    });
+  });
+}
+
+function formatFileSize(bytes) {
+  if (bytes === 0) return '0 B';
+  const k = 1024;
+  const sizes = ['B', 'KB', 'MB', 'GB'];
+  const i = Math.floor(Math.log(bytes) / Math.log(k));
+  return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
+}
 
 function addAttachedFile(fileData) {
   const file = {
@@ -864,7 +1029,9 @@ dropZone.addEventListener('drop', (e) => {
   
   const files = Array.from(e.dataTransfer.files);
   files.forEach(file => {
-    if (file.path) {
+    if (file.type.startsWith('image/')) {
+      handleImageFile(file);
+    } else if (file.path) {
       attachDroppedFile(file.path, file.name);
     }
   });
@@ -894,7 +1061,7 @@ async function attachDroppedFile(filePath, fileName) {
 
 async function sendMessage() {
   let content = messageInput.value.trim();
-  if (!content && attachedFiles.length === 0) return;
+  if (!content && attachedFiles.length === 0 && attachedImages.length === 0) return;
   
   if (!currentApiKey) {
     addMessage('assistant', 'No API token available. Please configure your API key in Settings.');
@@ -909,6 +1076,8 @@ async function sendMessage() {
   typingIndicator.classList.remove('hidden');
 
   const userContent = content;
+  let fullContent = userContent;
+  
   if (attachedFiles.length > 0) {
     const fileAttachments = attachedFiles.map(f => {
       if (f.content) {
@@ -916,14 +1085,27 @@ async function sendMessage() {
       }
       return `[File: ${f.name}]`;
     }).join('\n\n');
-    messages.push({ role: 'user', content: `${userContent}\n\n${fileAttachments}` });
-  } else {
-    messages.push({ role: 'user', content: userContent });
+    fullContent += '\n\n' + fileAttachments;
+  }
+
+  uploadedImages = [];
+  if (attachedImages.length > 0) {
+    for (const img of attachedImages) {
+      uploadedImages.push(img);
+    }
+    const imageAttachments = attachedImages.map((img, i) => {
+      return `[Image ${i + 1}: ${img.name} (${img.width}x${img.height}, ${formatFileSize(img.size)})]`;
+    }).join('\n');
+    fullContent += '\n\n' + imageAttachments;
   }
   
-  addMessage('user', userContent);
+  messages.push({ role: 'user', content: fullContent });
+  
+  addMessage('user', userContent, 'text', attachedImages);
   attachedFiles = [];
+  attachedImages = [];
   renderAttachedFiles();
+  renderImagePreviews();
 
   assistantMsg = addMessage('assistant', '');
   fullResponse = '';
@@ -991,6 +1173,34 @@ function showToast(message, type = 'info') {
     setTimeout(() => toast.remove(), 300);
   }, 4000);
 }
+
+function openLightbox(imageData) {
+  lightboxImage.src = imageData.dataUrl;
+  lightboxFilename.textContent = imageData.name;
+  lightboxDimensions.textContent = `${imageData.width} x ${imageData.height}`;
+  lightbox.classList.remove('hidden');
+  document.body.style.overflow = 'hidden';
+}
+
+function closeLightbox() {
+  lightbox.classList.add('hidden');
+  lightboxImage.src = '';
+  document.body.style.overflow = '';
+}
+
+lightboxClose.addEventListener('click', closeLightbox);
+
+lightbox.addEventListener('click', (e) => {
+  if (e.target === lightbox) {
+    closeLightbox();
+  }
+});
+
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && !lightbox.classList.contains('hidden')) {
+    closeLightbox();
+  }
+});
 
 function initTheme() {
   const savedTheme = localStorage.getItem('theme');
