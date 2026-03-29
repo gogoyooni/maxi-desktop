@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; connect-src https://api.minimax.io;">
+    <title>Maxi Desktop</title>
+  </head>
+  <body>
+    <div id="app">
+      <header id="header">
+        <h1>Maxi Desktop</h1>
+        <select id="model-selector">
+          <option value="MiniMax-M2.7">MiniMax-M2.7</option>
+        </select>
+      </header>
+      
+      <div id="container">
+        <aside id="sidebar">
+          <section id="mcp-section">
+            <h2>MCP Servers</h2>
+            <div id="mcp-status">
+              <div class="status-item">
+                <span class="status-dot disconnected"></span>
+                <span class="status-label">Disconnected</span>
+              </div>
+            </div>
+          </section>
+          
+          <section id="skills-section">
+            <h2>Skills</h2>
+            <div id="skills-list"></div>
+          </section>
+        </aside>
+        
+        <main id="chat-area">
+          <div id="chat-messages"></div>
+          <div id="typing-indicator" class="hidden">
+            <span>Maxi is thinking...</span>
+          </div>
+        </main>
+      </div>
+      
+      <footer id="input-area">
+        <div id="token-warning" class="hidden">
+          <span>No API token loaded. Please add tokens to ~/.maxi/tokens/</span>
+        </div>
+        <div id="input-row">
+          <button id="attach-btn" title="Attach file">📎</button>
+          <textarea id="message-input" placeholder="Message Maxi..." rows="1"></textarea>
+          <button id="send-btn">Send</button>
+        </div>
+        <input type="file" id="file-input" hidden multiple>
+      </footer>
+    </div>
+  </body>
+</html>
