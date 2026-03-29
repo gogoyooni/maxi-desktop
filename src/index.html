@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; connect-src https://api.minimax.io https://*.minimax.io; img-src 'self' data: blob:;">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; connect-src https://api.minimax.io https://*.minimax.io https://dpaste.org; img-src 'self' data: blob:;">
   <title>Maxi Desktop</title>
 </head>
 <body>
@@ -47,6 +47,15 @@
             <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
             <polyline points="7 10 12 15 17 10"/>
             <line x1="12" y1="15" x2="12" y2="3"/>
+          </svg>
+        </button>
+        <button id="share-chat-btn" class="icon-btn" title="Share Chat">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="18" cy="5" r="3"/>
+            <circle cx="6" cy="12" r="3"/>
+            <circle cx="18" cy="19" r="3"/>
+            <line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/>
+            <line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/>
           </svg>
         </button>
         <button id="settings-btn" class="icon-btn" title="Settings">
@@ -618,6 +627,72 @@
         <div class="modal-footer">
           <button id="export-cancel" class="btn secondary">Cancel</button>
           <button id="export-confirm" class="btn primary">Export</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="share-modal" class="modal hidden">
+      <div class="modal-backdrop"></div>
+      <div class="modal-content share-modal-content">
+        <div class="modal-header">
+          <h2>Share Chat</h2>
+          <button id="close-share" class="icon-btn">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <line x1="18" y1="6" x2="6" y2="18"/>
+              <line x1="6" y1="6" x2="18" y2="18"/>
+            </svg>
+          </button>
+        </div>
+        <div class="modal-body">
+          <div class="share-options">
+            <label class="share-checkbox">
+              <input type="checkbox" id="share-include-code" checked>
+              <span>Include code blocks</span>
+            </label>
+            <label class="share-checkbox">
+              <input type="checkbox" id="share-include-images">
+              <span>Include images (as base64)</span>
+            </label>
+            <label class="share-checkbox">
+              <input type="checkbox" id="share-password-protect">
+              <span>Password protect</span>
+            </label>
+            <div id="share-password-group" class="share-password-group hidden">
+              <input type="password" id="share-password" placeholder="Enter password">
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button id="share-cancel" class="btn secondary">Cancel</button>
+          <button id="share-generate" class="btn primary">Generate Link</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="share-result-modal" class="modal hidden">
+      <div class="modal-backdrop"></div>
+      <div class="modal-content share-result-modal-content">
+        <div class="modal-header">
+          <h2>Link Generated!</h2>
+          <button id="close-share-result" class="icon-btn">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <line x1="18" y1="6" x2="6" y2="18"/>
+              <line x1="6" y1="6" x2="18" y2="18"/>
+            </svg>
+          </button>
+        </div>
+        <div class="modal-body">
+          <div class="share-result-content">
+            <p class="share-link-label">Your shareable link:</p>
+            <div class="share-link-box">
+              <input type="text" id="share-link-output" readonly>
+              <button id="copy-share-link" class="btn secondary">Copy</button>
+            </div>
+            <p class="share-link-hint">Link expires in 24 hours</p>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button id="share-done" class="btn primary">Done</button>
         </div>
       </div>
     </div>

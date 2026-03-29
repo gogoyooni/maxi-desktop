@@ -2778,3 +2778,93 @@ body {
   font-size: 0.7rem;
   margin: 0 2px;
 }
+
+.share-options {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.share-checkbox {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  cursor: pointer;
+  font-size: 0.875rem;
+  color: var(--text-primary);
+}
+
+.share-checkbox input[type="checkbox"] {
+  width: 18px;
+  height: 18px;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+.share-password-group {
+  margin-top: 0.5rem;
+}
+
+.share-password-group input {
+  width: 100%;
+  padding: 0.5rem 0.75rem;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  color: var(--text-primary);
+  font-size: 0.875rem;
+}
+
+.share-password-group input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.share-result-content {
+  text-align: center;
+}
+
+.share-link-label {
+  font-size: 0.875rem;
+  color: var(--text-secondary);
+  margin-bottom: 0.75rem;
+}
+
+.share-link-box {
+  display: flex;
+  gap: 0.5rem;
+  margin-bottom: 0.75rem;
+}
+
+.share-link-box input {
+  flex: 1;
+  padding: 0.5rem 0.75rem;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  color: var(--text-primary);
+  font-size: 0.875rem;
+}
+
+.share-link-box input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.share-link-hint {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+.share-modal-content .modal-body,
+.share-result-modal-content .modal-body {
+  min-height: auto;
+}
+
+.share-result-modal-content .modal-body {
+  padding: 1.5rem;
+}
+
+.share-result-modal-content .modal-footer {
+  justify-content: center;
+}

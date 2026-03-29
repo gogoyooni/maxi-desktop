@@ -61,6 +61,20 @@ const closeExportBtn = document.getElementById('close-export');
 const exportCancelBtn = document.getElementById('export-cancel');
 const exportConfirmBtn = document.getElementById('export-confirm');
 
+const shareModal = document.getElementById('share-modal');
+const closeShareBtn = document.getElementById('close-share');
+const shareCancelBtn = document.getElementById('share-cancel');
+const shareGenerateBtn = document.getElementById('share-generate');
+const sharePasswordProtect = document.getElementById('share-password-protect');
+const sharePasswordGroup = document.getElementById('share-password-group');
+const sharePasswordInput = document.getElementById('share-password');
+
+const shareResultModal = document.getElementById('share-result-modal');
+const closeShareResultBtn = document.getElementById('close-share-result');
+const shareLinkOutput = document.getElementById('share-link-output');
+const copyShareLinkBtn = document.getElementById('copy-share-link');
+const shareDoneBtn = document.getElementById('share-done');
+
 let assistantMsg = null;
 let thinkingMsg = null;
 let fullResponse = '';
@@ -2297,6 +2311,7 @@ showMCPServers();
 initChatHistory();
 initTabs();
 initExport();
+initShare();
 
 const saveChatBtn = document.getElementById('save-chat-btn');
 const loadChatBtn = document.getElementById('load-chat-btn');
@@ -2712,6 +2727,168 @@ async function handleExportConfirm() {
   } catch (error) {
     console.error('Export error:', error);
     showToast('Export failed: ' + error.message, 'error');
+  }
+}
+
+function initShare() {
+  const shareChatBtn = document.getElementById('share-chat-btn');
+
+  shareChatBtn.addEventListener('click', () => {
+    const activeTab = tabs.find(t => t.id === activeTabId);
+    if (!activeTab || !activeTab.messages || activeTab.messages.length === 0) {
+      showToast('No messages to share', 'warning');
+      return;
+    }
+    shareModal.classList.remove('hidden');
+  });
+
+  closeShareBtn.addEventListener('click', closeShareModalFn);
+  shareModal.querySelector('.modal-backdrop').addEventListener('click', closeShareModalFn);
+  shareCancelBtn.addEventListener('click', closeShareModalFn);
+  shareGenerateBtn.addEventListener('click', handleShareGenerate);
+
+  sharePasswordProtect.addEventListener('change', (e) => {
+    if (e.target.checked) {
+      sharePasswordGroup.classList.remove('hidden');
+    } else {
+      sharePasswordGroup.classList.add('hidden');
+      sharePasswordInput.value = '';
+    }
+  });
+
+  closeShareResultBtn.addEventListener('click', closeShareResultModalFn);
+  shareResultModal.querySelector('.modal-backdrop').addEventListener('click', closeShareResultModalFn);
+  shareDoneBtn.addEventListener('click', closeShareResultModalFn);
+  copyShareLinkBtn.addEventListener('click', copyShareLink);
+}
+
+function closeShareModalFn() {
+  shareModal.classList.add('hidden');
+  sharePasswordProtect.checked = false;
+  sharePasswordGroup.classList.add('hidden');
+  sharePasswordInput.value = '';
+}
+
+function closeShareResultModalFn() {
+  shareResultModal.classList.add('hidden');
+}
+
+async function copyShareLink() {
+  try {
+    await navigator.clipboard.writeText(shareLinkOutput.value);
+    showToast('Link copied to clipboard!', 'success');
+  } catch (error) {
+    showToast('Failed to copy link', 'error');
+  }
+}
+
+function formatShareContent(tab, includeCode, includeImages) {
+  if (!tab || !tab.messages || tab.messages.length === 0) {
+    return null;
+  }
+
+  const now = new Date();
+  const dateStr = formatDate(now);
+  const timeStr = formatTime(now);
+
+  let content = `# Chat Share\n\n`;
+  content += `**Shared:** ${dateStr} at ${timeStr}\n`;
+  content += `**Model:** ${currentModel}\n`;
+  content += `---\n\n`;
+
+  tab.messages.forEach((msg) => {
+    const role = msg.role === 'user' ? '**User**' : '**Assistant**';
+    content += `${role}:\n\n`;
+    content += msg.content + '\n\n';
+
+    if (msg.images && includeImages && msg.images.length > 0) {
+      msg.images.forEach(img => {
+        if (img.type === 'base64' && img.data) {
+          content += `[Image: ${img.name || 'embedded image'}]\n`;
+          content += `\`\`\`\n${img.data}\n\`\`\`\n\n`;
+        }
+      });
+    }
+
+    content += `---\n\n`;
+  });
+
+  return content;
+}
+
+async function handleShareGenerate() {
+  const activeTab = tabs.find(t => t.id === activeTabId);
+  if (!activeTab || !activeTab.messages || activeTab.messages.length === 0) {
+    showToast('No messages to share', 'warning');
+    return;
+  }
+
+  const includeCode = document.getElementById('share-include-code').checked;
+  const includeImages = document.getElementById('share-include-images').checked;
+  const passwordProtected = sharePasswordProtect.checked;
+  const password = passwordProtected ? sharePasswordInput.value : '';
+
+  if (passwordProtected && !password) {
+    showToast('Please enter a password', 'warning');
+    return;
+  }
+
+  closeShareModalFn();
+  shareGenerateBtn.disabled = true;
+  shareGenerateBtn.textContent = 'Generating...';
+
+  try {
+    const content = formatShareContent(activeTab, includeCode, includeImages);
+    if (!content) {
+      showToast('No content to share', 'warning');
+      return;
+    }
+
+    const encodedContent = btoa(unescape(encodeURIComponent(content)));
+
+    let shareUrl;
+    try {
+      const response = await fetch('https://dpaste.org/api/', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+        },
+        body: new URLSearchParams({
+          content: content,
+          lexer: '_text',
+          expires: '86400',
+        }),
+      });
+
+      if (response.ok) {
+        const text = await response.text();
+        const lines = text.trim().split('\n');
+        if (lines.length > 0) {
+          const lastLine = lines[lines.length - 1].trim();
+          if (lastLine.startsWith('https://dpaste.org/')) {
+            shareUrl = lastLine + '/raw';
+          } else if (lastLine.includes('/')) {
+            shareUrl = 'https://dpaste.org/' + lastLine.split('/').pop() + '/raw';
+          }
+        }
+      }
+    } catch (apiError) {
+      console.error('dpaste API error:', apiError);
+    }
+
+    if (!shareUrl) {
+      shareUrl = 'data:text/plain;base64,' + encodedContent;
+    }
+
+    shareLinkOutput.value = shareUrl;
+    shareResultModal.classList.remove('hidden');
+    showToast('Link generated successfully!', 'success');
+  } catch (error) {
+    console.error('Share error:', error);
+    showToast('Failed to generate share link: ' + error.message, 'error');
+  } finally {
+    shareGenerateBtn.disabled = false;
+    shareGenerateBtn.textContent = 'Generate Link';
   }
 }
 
