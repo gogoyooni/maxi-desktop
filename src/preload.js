@@ -24,6 +24,15 @@ contextBridge.exposeInMainWorld('maxi', {
   sshDisconnect: () => ipcRenderer.invoke('ssh-disconnect'),
   sshSelectKey: () => ipcRenderer.invoke('ssh-select-key'),
   
+  saveChat: (chatData) => ipcRenderer.invoke('save-chat', chatData),
+  loadChatHistory: () => ipcRenderer.invoke('load-chat-history'),
+  loadChat: (chatId) => ipcRenderer.invoke('load-chat', chatId),
+  deleteChat: (chatId) => ipcRenderer.invoke('delete-chat', chatId),
+  renameChat: (data) => ipcRenderer.invoke('rename-chat', data),
+  saveAutosave: (chatData) => ipcRenderer.invoke('save-autosave', chatData),
+  loadAutosave: () => ipcRenderer.invoke('load-autosave'),
+  clearAutosave: () => ipcRenderer.invoke('clear-autosave'),
+  
   onChatStream: (callback) => {
     ipcRenderer.on('chat-stream', (_, content) => callback(content));
   },

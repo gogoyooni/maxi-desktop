@@ -96,6 +96,14 @@ let sshTerminalFitAddon = null;
 let sshConnected = false;
 let sshEditingId = null;
 
+let chatHistory = [];
+let currentChatId = null;
+let selectedChatId = null;
+let selectedChatData = null;
+let autoSaveInterval = null;
+let hasUnsavedChanges = false;
+let renamingChatId = null;
+
 function initSpeechRecognition() {
   const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
   if (!SpeechRecognition) {
@@ -1001,6 +1009,7 @@ window.maxi.onChatComplete(() => {
   }
   if (fullResponse) {
     messages.push({ role: 'assistant', content: fullResponse });
+    hasUnsavedChanges = true;
   }
   isStreaming = false;
   sendBtn.disabled = false;
@@ -1115,6 +1124,8 @@ saveSettingsBtn.addEventListener('click', () => {
 
 clearChatBtn.addEventListener('click', () => {
   messages = [];
+  currentChatId = null;
+  hasUnsavedChanges = false;
   chatMessages.innerHTML = `
     <div class="welcome-state">
       <div class="welcome-icon">
@@ -1492,6 +1503,7 @@ async function sendMessage() {
   }
   
   messages.push({ role: 'user', content: fullContent });
+  hasUnsavedChanges = true;
   
   addMessage('user', userContent, 'text', attachedImages);
   attachedFiles = [];
@@ -2042,3 +2054,405 @@ loadTokens();
 loadSkills();
 loadWorkspaceFiles();
 showMCPServers();
+initChatHistory();
+
+const saveChatBtn = document.getElementById('save-chat-btn');
+const loadChatBtn = document.getElementById('load-chat-btn');
+const chatHistoryModal = document.getElementById('chat-history-modal');
+const closeChatHistoryBtn = document.getElementById('close-chat-history');
+const chatSearchInput = document.getElementById('chat-search-input');
+const chatHistoryList = document.getElementById('chat-history-list');
+const chatPreview = document.getElementById('chat-preview');
+const chatPreviewTitle = document.getElementById('chat-preview-title');
+const chatPreviewContent = document.getElementById('chat-preview-content');
+const closePreviewBtn = document.getElementById('close-preview');
+const loadChatActionBtn = document.getElementById('load-chat-action');
+const mergeChatActionBtn = document.getElementById('merge-chat-action');
+const renameChatModal = document.getElementById('rename-chat-modal');
+const closeRenameModalBtn = document.getElementById('close-rename-modal');
+const renameChatInput = document.getElementById('rename-chat-input');
+const cancelRenameBtn = document.getElementById('cancel-rename');
+const confirmRenameBtn = document.getElementById('confirm-rename');
+
+saveChatBtn.addEventListener('click', saveCurrentChat);
+loadChatBtn.addEventListener('click', openChatHistoryModal);
+closeChatHistoryBtn.addEventListener('click', closeChatHistoryModalFn);
+chatHistoryModal.querySelector('.modal-backdrop').addEventListener('click', closeChatHistoryModalFn);
+chatSearchInput.addEventListener('input', filterChatHistory);
+closePreviewBtn.addEventListener('click', closePreviewFn);
+loadChatActionBtn.addEventListener('click', () => loadSelectedChat(false));
+mergeChatActionBtn.addEventListener('click', () => loadSelectedChat(true));
+closeRenameModalBtn.addEventListener('click', closeRenameModalFn);
+renameChatModal.querySelector('.modal-backdrop').addEventListener('click', closeRenameModalFn);
+cancelRenameBtn.addEventListener('click', closeRenameModalFn);
+confirmRenameBtn.addEventListener('click', confirmRename);
+
+startAutoSave();
+checkForAutosave();
+
+function initChatHistory() {
+  loadChatHistoryList();
+}
+
+function startAutoSave() {
+  if (autoSaveInterval) {
+    clearInterval(autoSaveInterval);
+  }
+  autoSaveInterval = setInterval(() => {
+    if (hasUnsavedChanges && messages.length > 0) {
+      performAutoSave();
+    }
+  }, 5 * 60 * 1000);
+}
+
+async function performAutoSave() {
+  if (messages.length === 0) return;
+  try {
+    const title = messages[0]?.content?.substring(0, 50) || 'Untitled';
+    await window.maxi.saveAutosave({
+      id: currentChatId,
+      title: title + '...',
+      messages: messages
+    });
+  } catch (error) {
+    console.error('Auto-save failed:', error);
+  }
+}
+
+async function checkForAutosave() {
+  try {
+    const autosave = await window.maxi.loadAutosave();
+    if (autosave && autosave.messages && autosave.messages.length > 0) {
+      const shouldRestore = confirm('Unsaved chat found. Would you like to restore it?');
+      if (shouldRestore) {
+        messages = autosave.messages;
+        currentChatId = autosave.id;
+        renderMessages();
+        showToast('Chat restored from autosave', 'success');
+        await window.maxi.clearAutosave();
+      } else {
+        await window.maxi.clearAutosave();
+      }
+    }
+  } catch (error) {
+    console.error('Error checking autosave:', error);
+  }
+}
+
+async function saveCurrentChat() {
+  if (messages.length === 0) {
+    showToast('No messages to save', 'warning');
+    return;
+  }
+  try {
+    const title = messages[0]?.content?.substring(0, 50) || 'Untitled';
+    const result = await window.maxi.saveChat({
+      id: currentChatId,
+      title: title + '...',
+      messages: messages
+    });
+    if (result.success) {
+      currentChatId = result.id;
+      hasUnsavedChanges = false;
+      showToast('Chat saved successfully', 'success');
+      await loadChatHistoryList();
+    } else {
+      showToast('Failed to save chat: ' + result.error, 'error');
+    }
+  } catch (error) {
+    showToast('Failed to save chat', 'error');
+  }
+}
+
+async function loadChatHistoryList() {
+  try {
+    chatHistory = await window.maxi.loadChatHistory();
+    renderChatHistoryList('');
+  } catch (error) {
+    console.error('Error loading chat history:', error);
+  }
+}
+
+function renderChatHistoryList(searchTerm = '') {
+  const filteredChats = chatHistory.filter(chat => 
+    chat.title.toLowerCase().includes(searchTerm.toLowerCase())
+  );
+  
+  if (filteredChats.length === 0) {
+    chatHistoryList.innerHTML = `
+      <div class="chat-history-empty">
+        <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+          <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+        </svg>
+        <p>${searchTerm ? 'No chats match your search' : 'No saved chats yet'}</p>
+      </div>
+    `;
+    return;
+  }
+  
+  const groupedChats = groupChatsByDate(filteredChats);
+  let html = '';
+  
+  for (const [dateGroup, chats] of Object.entries(groupedChats)) {
+    html += `<div class="chat-date-group">${dateGroup}</div>`;
+    for (const chat of chats) {
+      const timeAgo = getTimeAgo(new Date(chat.updated));
+      html += `
+        <div class="chat-item ${chat.id === selectedChatId ? 'active' : ''}" data-id="${chat.id}">
+          <div class="chat-item-icon">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+            </svg>
+          </div>
+          <div class="chat-item-info">
+            <div class="chat-item-title">${escapeHtml(chat.title)}</div>
+            <div class="chat-item-meta">
+              <span>${chat.messageCount} messages</span>
+              <span>•</span>
+              <span>${timeAgo}</span>
+            </div>
+          </div>
+          <div class="chat-item-actions">
+            <button class="chat-action-btn rename" title="Rename" data-action="rename">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
+                <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
+              </svg>
+            </button>
+            <button class="chat-action-btn delete" title="Delete" data-action="delete">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <polyline points="3 6 5 6 21 6"/>
+                <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
+              </svg>
+            </button>
+          </div>
+        </div>
+      `;
+    }
+  }
+  
+  chatHistoryList.innerHTML = html;
+  
+  chatHistoryList.querySelectorAll('.chat-item').forEach(item => {
+    item.addEventListener('click', (e) => {
+      if (e.target.closest('.chat-action-btn')) return;
+      selectChatItem(item.dataset.id);
+    });
+  });
+  
+  chatHistoryList.querySelectorAll('.chat-action-btn').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const chatId = btn.closest('.chat-item').dataset.id;
+      const action = btn.dataset.action;
+      if (action === 'rename') {
+        openRenameModal(chatId);
+      } else if (action === 'delete') {
+        deleteChatItem(chatId);
+      }
+    });
+  });
+}
+
+function groupChatsByDate(chats) {
+  const groups = {};
+  const today = new Date();
+  const yesterday = new Date(today);
+  yesterday.setDate(yesterday.getDate() - 1);
+  
+  const formatDate = (date) => {
+    const d = new Date(date);
+    if (d.toDateString() === today.toDateString()) return 'Today';
+    if (d.toDateString() === yesterday.toDateString()) return 'Yesterday';
+    return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+  };
+  
+  chats.forEach(chat => {
+    const dateGroup = formatDate(chat.updated);
+    if (!groups[dateGroup]) {
+      groups[dateGroup] = [];
+    }
+    groups[dateGroup].push(chat);
+  });
+  
+  return groups;
+}
+
+function getTimeAgo(date) {
+  const seconds = Math.floor((new Date() - date) / 1000);
+  if (seconds < 60) return 'Just now';
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes} min ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours} hour${hours > 1 ? 's' : ''} ago`;
+  const days = Math.floor(hours / 24);
+  if (days < 7) return `${days} day${days > 1 ? 's' : ''} ago`;
+  return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+}
+
+async function selectChatItem(chatId) {
+  selectedChatId = chatId;
+  renderChatHistoryList(chatSearchInput.value);
+  
+  try {
+    const result = await window.maxi.loadChat(chatId);
+    if (result.success) {
+      selectedChatData = result.chat;
+      showChatPreview(result.chat);
+    } else {
+      showToast('Failed to load chat', 'error');
+    }
+  } catch (error) {
+    showToast('Failed to load chat', 'error');
+  }
+}
+
+function showChatPreview(chat) {
+  chatPreviewTitle.textContent = chat.title;
+  
+  const previewMessages = chat.messages.slice(0, 5);
+  let html = '';
+  
+  previewMessages.forEach(msg => {
+    html += `
+      <div class="chat-preview-message ${msg.role}">
+        <div class="role">${msg.role}</div>
+        <div class="content">${escapeHtml(msg.content.substring(0, 200))}${msg.content.length > 200 ? '...' : ''}</div>
+      </div>
+    `;
+  });
+  
+  if (chat.messages.length > 5) {
+    html += `<div class="chat-preview-message" style="text-align: center; color: var(--text-muted);">... and ${chat.messages.length - 5} more messages</div>`;
+  }
+  
+  chatPreviewContent.innerHTML = html;
+  chatPreview.classList.remove('hidden');
+}
+
+function closePreviewFn() {
+  selectedChatId = null;
+  selectedChatData = null;
+  chatPreview.classList.add('hidden');
+  renderChatHistoryList(chatSearchInput.value);
+}
+
+async function loadSelectedChat(merge = false) {
+  if (!selectedChatData) return;
+  
+  if (merge) {
+    messages = [...messages, ...selectedChatData.messages];
+    showToast('Chat merged successfully', 'success');
+  } else {
+    messages = selectedChatData.messages;
+    currentChatId = selectedChatId;
+    hasUnsavedChanges = false;
+    showToast('Chat loaded successfully', 'success');
+  }
+  
+  renderMessages();
+  closeChatHistoryModalFn();
+}
+
+function renderMessages() {
+  chatMessages.innerHTML = '';
+  
+  if (messages.length === 0) {
+    chatMessages.innerHTML = `
+      <div class="welcome-state">
+        <div class="welcome-icon">
+          <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+            <path d="M12 2L2 7l10 5 10-5-10-5z"/>
+            <path d="M2 17l10 5 10-5"/>
+            <path d="M2 12l10 5 10-5"/>
+          </svg>
+        </div>
+        <h2>Welcome to Maxi</h2>
+        <p>Ask me anything, or drag files into the chat to get started.</p>
+      </div>
+    `;
+    return;
+  }
+  
+  messages.forEach(msg => {
+    addMessage(msg.role, msg.content, 'text', []);
+  });
+}
+
+function filterChatHistory() {
+  renderChatHistoryList(chatSearchInput.value);
+}
+
+function openChatHistoryModal() {
+  chatHistoryModal.classList.remove('hidden');
+  loadChatHistoryList();
+  closePreviewFn();
+}
+
+function closeChatHistoryModalFn() {
+  chatHistoryModal.classList.add('hidden');
+  closePreviewFn();
+}
+
+function openRenameModal(chatId) {
+  renamingChatId = chatId;
+  const chat = chatHistory.find(c => c.id === chatId);
+  if (chat) {
+    renameChatInput.value = chat.title;
+  }
+  renameChatModal.classList.remove('hidden');
+}
+
+function closeRenameModalFn() {
+  renameChatModal.classList.add('hidden');
+  renamingChatId = null;
+}
+
+async function confirmRename() {
+  if (!renamingChatId) return;
+  const newTitle = renameChatInput.value.trim();
+  if (!newTitle) {
+    showToast('Please enter a title', 'warning');
+    return;
+  }
+  
+  try {
+    const result = await window.maxi.renameChat({ chatId: renamingChatId, newTitle });
+    if (result.success) {
+      showToast('Chat renamed successfully', 'success');
+      await loadChatHistoryList();
+      closeRenameModalFn();
+    } else {
+      showToast('Failed to rename chat: ' + result.error, 'error');
+    }
+  } catch (error) {
+    showToast('Failed to rename chat', 'error');
+  }
+}
+
+async function deleteChatItem(chatId) {
+  if (!confirm('Are you sure you want to delete this chat?')) {
+    return;
+  }
+  
+  try {
+    const result = await window.maxi.deleteChat(chatId);
+    if (result.success) {
+      showToast('Chat deleted successfully', 'success');
+      if (selectedChatId === chatId) {
+        closePreviewFn();
+      }
+      await loadChatHistoryList();
+    } else {
+      showToast('Failed to delete chat: ' + result.error, 'error');
+    }
+  } catch (error) {
+    showToast('Failed to delete chat', 'error');
+  }
+}
+
+window.addEventListener('beforeunload', async () => {
+  if (hasUnsavedChanges && messages.length > 0) {
+    await performAutoSave();
+  }
+});

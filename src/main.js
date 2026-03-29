@@ -55,6 +55,8 @@ app.on('window-all-closed', () => {
 const MAXI_TOKENS_PATH = path.join(process.env.HOME || process.env.USERPROFILE, '.maxi', 'tokens');
 const MAXI_SKILLS_PATH = path.join(process.env.HOME || process.env.USERPROFILE, '.maxi', 'skills');
 const MAXI_SSH_CONFIG_PATH = path.join(process.env.HOME || process.env.USERPROFILE, '.maxi', 'ssh-config.json');
+const MAXI_CHAT_HISTORY_PATH = path.join(process.env.HOME || process.env.USERPROFILE, '.maxi', 'chat-history');
+const MAXI_AUTO_SAVE_PATH = path.join(process.env.HOME || process.env.USERPROFILE, '.maxi', 'autosave.json');
 
 let sshClient = null;
 let currentSshConnection = null;
@@ -756,4 +758,161 @@ ipcMain.handle('kill-terminal', () => {
     }
   }
   return false;
+});
+
+function ensureChatHistoryDir() {
+  if (!fs.existsSync(MAXI_CHAT_HISTORY_PATH)) {
+    fs.mkdirSync(MAXI_CHAT_HISTORY_PATH, { recursive: true });
+  }
+}
+
+function generateChatId() {
+  return 'chat_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+}
+
+ipcMain.handle('save-chat', async (event, chatData) => {
+  try {
+    ensureChatHistoryDir();
+    const id = chatData.id || generateChatId();
+    const now = new Date().toISOString();
+    const title = chatData.title || (chatData.messages?.[0]?.content?.substring(0, 50) || 'Untitled') + '...';
+    
+    const chat = {
+      id,
+      title,
+      created: chatData.created || now,
+      updated: now,
+      messages: chatData.messages || []
+    };
+    
+    const filename = `${id}.json`;
+    const filepath = path.join(MAXI_CHAT_HISTORY_PATH, filename);
+    fs.writeFileSync(filepath, JSON.stringify(chat, null, 2));
+    
+    return { success: true, id, filepath };
+  } catch (error) {
+    console.error('Error saving chat:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('load-chat-history', async () => {
+  try {
+    ensureChatHistoryDir();
+    const files = fs.readdirSync(MAXI_CHAT_HISTORY_PATH);
+    const chats = [];
+    
+    for (const file of files) {
+      if (file.endsWith('.json')) {
+        try {
+          const filepath = path.join(MAXI_CHAT_HISTORY_PATH, file);
+          const content = fs.readFileSync(filepath, 'utf-8');
+          const chat = JSON.parse(content);
+          chats.push({
+            id: chat.id,
+            title: chat.title,
+            created: chat.created,
+            updated: chat.updated,
+            messageCount: chat.messages?.length || 0
+          });
+        } catch (e) {
+          console.error('Error reading chat file:', file, e);
+        }
+      }
+    }
+    
+    chats.sort((a, b) => new Date(b.updated) - new Date(a.updated));
+    return chats;
+  } catch (error) {
+    console.error('Error loading chat history:', error);
+    return [];
+  }
+});
+
+ipcMain.handle('load-chat', async (event, chatId) => {
+  try {
+    const filepath = path.join(MAXI_CHAT_HISTORY_PATH, `${chatId}.json`);
+    if (!fs.existsSync(filepath)) {
+      return { success: false, error: 'Chat not found' };
+    }
+    const content = fs.readFileSync(filepath, 'utf-8');
+    const chat = JSON.parse(content);
+    return { success: true, chat };
+  } catch (error) {
+    console.error('Error loading chat:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('delete-chat', async (event, chatId) => {
+  try {
+    const filepath = path.join(MAXI_CHAT_HISTORY_PATH, `${chatId}.json`);
+    if (fs.existsSync(filepath)) {
+      fs.unlinkSync(filepath);
+    }
+    return { success: true };
+  } catch (error) {
+    console.error('Error deleting chat:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('rename-chat', async (event, { chatId, newTitle }) => {
+  try {
+    const filepath = path.join(MAXI_CHAT_HISTORY_PATH, `${chatId}.json`);
+    if (!fs.existsSync(filepath)) {
+      return { success: false, error: 'Chat not found' };
+    }
+    const content = fs.readFileSync(filepath, 'utf-8');
+    const chat = JSON.parse(content);
+    chat.title = newTitle;
+    chat.updated = new Date().toISOString();
+    fs.writeFileSync(filepath, JSON.stringify(chat, null, 2));
+    return { success: true };
+  } catch (error) {
+    console.error('Error renaming chat:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('save-autosave', async (event, chatData) => {
+  try {
+    const now = new Date().toISOString();
+    const autosave = {
+      id: chatData.id || generateChatId(),
+      title: chatData.title || (chatData.messages?.[0]?.content?.substring(0, 50) || 'Untitled') + '...',
+      updated: now,
+      messages: chatData.messages || []
+    };
+    fs.writeFileSync(MAXI_AUTO_SAVE_PATH, JSON.stringify(autosave, null, 2));
+    return { success: true };
+  } catch (error) {
+    console.error('Error saving autosave:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('load-autosave', async () => {
+  try {
+    if (!fs.existsSync(MAXI_AUTO_SAVE_PATH)) {
+      return null;
+    }
+    const content = fs.readFileSync(MAXI_AUTO_SAVE_PATH, 'utf-8');
+    return JSON.parse(content);
+  } catch (error) {
+    console.error('Error loading autosave:', error);
+    return null;
+  }
+});
+
+ipcMain.handle('clear-autosave', async () => {
+  try {
+    if (fs.existsSync(MAXI_AUTO_SAVE_PATH)) {
+      fs.unlinkSync(MAXI_AUTO_SAVE_PATH);
+    }
+    return { success: true };
+  } catch (error) {
+    console.error('Error clearing autosave:', error);
+    return { success: false, error: error.message };
+  }
 });

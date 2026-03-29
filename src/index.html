@@ -29,6 +29,19 @@
         </div>
       </div>
       <div class="header-right">
+        <button id="save-chat-btn" class="icon-btn" title="Save Chat">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/>
+            <polyline points="17 21 17 13 7 13 7 21"/>
+            <polyline points="7 3 7 8 15 8"/>
+          </svg>
+        </button>
+        <button id="load-chat-btn" class="icon-btn" title="Load Chat">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="12" cy="12" r="10"/>
+            <polyline points="12 6 12 12 16 14"/>
+          </svg>
+        </button>
         <button id="settings-btn" class="icon-btn" title="Settings">
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <circle cx="12" cy="12" r="3"/>
@@ -431,6 +444,72 @@
         <div class="modal-footer">
           <button id="ssh-test-btn" class="btn secondary">Test Connection</button>
           <button id="ssh-save-btn" class="btn primary">Save & Connect</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="chat-history-modal" class="modal hidden">
+      <div class="modal-backdrop"></div>
+      <div class="modal-content chat-history-modal-content">
+        <div class="modal-header">
+          <h2>Chat History</h2>
+          <button id="close-chat-history" class="icon-btn">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <line x1="18" y1="6" x2="6" y2="18"/>
+              <line x1="6" y1="6" x2="18" y2="18"/>
+            </svg>
+          </button>
+        </div>
+        <div class="chat-history-search">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="11" cy="11" r="8"/>
+            <line x1="21" y1="21" x2="16.65" y2="16.65"/>
+          </svg>
+          <input type="text" id="chat-search-input" placeholder="Search chats...">
+        </div>
+        <div class="modal-body chat-history-body">
+          <div id="chat-history-list" class="chat-history-list"></div>
+          <div id="chat-preview" class="chat-preview hidden">
+            <div class="chat-preview-header">
+              <h3 id="chat-preview-title">Chat Preview</h3>
+              <button id="close-preview" class="icon-btn small">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <line x1="18" y1="6" x2="6" y2="18"/>
+                  <line x1="6" y1="6" x2="18" y2="18"/>
+                </svg>
+              </button>
+            </div>
+            <div id="chat-preview-content" class="chat-preview-content"></div>
+            <div class="chat-preview-footer">
+              <button id="load-chat-action" class="btn primary">Load Chat</button>
+              <button id="merge-chat-action" class="btn secondary">Merge with Current</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div id="rename-chat-modal" class="modal hidden">
+      <div class="modal-backdrop"></div>
+      <div class="modal-content rename-modal-content">
+        <div class="modal-header">
+          <h2>Rename Chat</h2>
+          <button id="close-rename-modal" class="icon-btn">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <line x1="18" y1="6" x2="6" y2="18"/>
+              <line x1="6" y1="6" x2="18" y2="18"/>
+            </svg>
+          </button>
+        </div>
+        <div class="modal-body">
+          <div class="setting-item">
+            <label for="rename-chat-input">New Title</label>
+            <input type="text" id="rename-chat-input" placeholder="Enter new title...">
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button id="cancel-rename" class="btn secondary">Cancel</button>
+          <button id="confirm-rename" class="btn primary">Rename</button>
         </div>
       </div>
     </div>
