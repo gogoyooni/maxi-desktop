@@ -66,5 +66,22 @@ contextBridge.exposeInMainWorld('maxi', {
   
   removeAllListeners: (channel) => {
     ipcRenderer.removeAllListeners(channel);
+  },
+
+  plugins: {
+    loadPlugins: () => ipcRenderer.invoke('plugins-load'),
+    enablePlugin: (name) => ipcRenderer.invoke('plugins-enable', name),
+    disablePlugin: (name) => ipcRenderer.invoke('plugins-disable', name),
+    getConfig: (name) => ipcRenderer.invoke('plugins-get-config', name),
+    setConfig: (name, config) => ipcRenderer.invoke('plugins-set-config', { pluginName: name, config }),
+    uninstall: (name) => ipcRenderer.invoke('plugins-uninstall', name),
+    installFolder: () => ipcRenderer.invoke('plugins-install-folder'),
+    readFile: (name, filePath) => ipcRenderer.invoke('plugins-read-file', { pluginName: name, filePath }),
+    writeFile: (name, filePath, content) => ipcRenderer.invoke('plugins-write-file', { pluginName: name, filePath, content }),
+    requestPermissions: (name, permissions) => ipcRenderer.invoke('plugins-request-permissions', { pluginName: name, permissions }),
+    grantPermissions: (name, permissions) => ipcRenderer.invoke('plugins-grant-permissions', { pluginName: name, permissions }),
+    onPermissionRequest: (callback) => {
+      ipcRenderer.on('plugin-permission-request', (_, data) => callback(data));
+    }
   }
 });

@@ -123,6 +123,69 @@ let autoSaveInterval = null;
 let hasUnsavedChanges = false;
 let renamingChatId = null;
 
+let plugins = [];
+let activePlugins = new Map();
+let pluginHooks = {
+  onStartup: [],
+  onShutdown: [],
+  onMessage: [],
+  onToolbar: [],
+  onSidebar: []
+};
+let pendingPermissionRequest = null;
+
+window.maxi = window.maxi || {};
+
+window.maxi.plugins = {
+  register(pluginName, hook, callback) {
+    if (pluginHooks[hook]) {
+      pluginHooks[hook].push({ pluginName, callback });
+    }
+  },
+  unregister(pluginName, hook, callback) {
+    if (pluginHooks[hook]) {
+      pluginHooks[hook] = pluginHooks[hook].filter(
+        h => !(h.pluginName === pluginName && h.callback === callback)
+      );
+    }
+  },
+  getConfig(pluginName) {
+    const plugin = plugins.find(p => p.name === pluginName);
+    return plugin ? { ...plugin } : null;
+  },
+  setConfig(pluginName, config) {
+    return window.maxi.plugins.setConfig(pluginName, config);
+  },
+  log(message, level = 'info') {
+    console[`${level}`] || console.log;
+  }
+};
+
+async function callPluginHook(hookName, data) {
+  const hooks = pluginHooks[hookName] || [];
+  for (const { callback } of hooks) {
+    try {
+      await callback(data);
+    } catch (error) {
+      console.error(`Error in ${hookName} hook:`, error);
+    }
+  }
+}
+
+function triggerOnStartup() {
+  setTimeout(() => {
+    callPluginHook('onStartup', {});
+  }, 1000);
+}
+
+function triggerOnShutdown() {
+  callPluginHook('onShutdown', {});
+}
+
+window.addEventListener('beforeunload', () => {
+  triggerOnShutdown();
+});
+
 const MAX_TABS = 10;
 
 let tabs = [];
@@ -1254,6 +1317,8 @@ window.maxi.onChatComplete(() => {
     activeTab.messages = messages;
     activeTab.hasUnsavedChanges = hasUnsavedChanges;
   }
+  
+  callPluginHook('onMessage', { type: 'post', messages });
 });
 
 window.maxi.onTokenUsage((data) => {
@@ -1751,6 +1816,8 @@ async function sendMessage() {
   
   messages.push({ role: 'user', content: fullContent });
   hasUnsavedChanges = true;
+  
+  await callPluginHook('onMessage', { type: 'pre', messages });
   
   const activeTab = tabs.find(t => t.id === activeTabId);
   if (activeTab) {
@@ -2312,6 +2379,259 @@ initChatHistory();
 initTabs();
 initExport();
 initShare();
+initPlugins();
+triggerOnStartup();
+
+const pluginSettingsModal = document.getElementById('plugin-settings-modal');
+const closePluginSettings = document.getElementById('close-plugin-settings');
+const pluginSettingsContent = document.getElementById('plugin-settings-content');
+const pluginSettingsTitle = document.getElementById('plugin-settings-title');
+const pluginUninstallBtn = document.getElementById('plugin-uninstall-btn');
+const pluginSaveBtn = document.getElementById('plugin-save-btn');
+
+const pluginPermissionsModal = document.getElementById('plugin-permissions-modal');
+const closePluginPermissions = document.getElementById('close-plugin-permissions');
+const pluginPermissionsDesc = document.getElementById('plugin-permissions-desc');
+const pluginPermissionsList = document.getElementById('plugin-permissions-list');
+const pluginPermissionsGrant = document.getElementById('plugin-permissions-grant');
+const pluginPermissionsCancel = document.getElementById('plugin-permissions-cancel');
+
+const pluginsInstallBtn = document.getElementById('plugins-install-btn');
+const pluginsList = document.getElementById('plugins-list');
+
+async function initPlugins() {
+  await loadPluginsList();
+  setupPluginPermissionListener();
+}
+
+async function loadPluginsList() {
+  try {
+    plugins = await window.maxi.plugins.loadPlugins();
+    renderPluginsList();
+  } catch (error) {
+    console.error('Failed to load plugins:', error);
+  }
+}
+
+function renderPluginsList() {
+  if (plugins.length === 0) {
+    pluginsList.innerHTML = `
+      <div class="plugin-empty-state">
+        <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+          <circle cx="12" cy="12" r="3"/>
+          <path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/>
+        </svg>
+        <p>No plugins installed</p>
+        <button class="btn primary" id="plugins-install-first-btn">Install from Folder</button>
+      </div>
+    `;
+    document.getElementById('plugins-install-first-btn')?.addEventListener('click', installPluginFromFolder);
+    return;
+  }
+
+  pluginsList.innerHTML = plugins.map(plugin => `
+    <div class="plugin-item ${plugin.enabled ? '' : 'disabled'}" data-plugin="${plugin.name}">
+      <div class="plugin-icon">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <circle cx="12" cy="12" r="3"/>
+          <path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/>
+        </svg>
+      </div>
+      <div class="plugin-info">
+        <div class="plugin-name">${escapeHtml(plugin.name)}</div>
+        <div class="plugin-version">v${plugin.version}</div>
+        ${plugin.description ? `<div class="plugin-description">${escapeHtml(plugin.description)}</div>` : ''}
+      </div>
+      <label class="plugin-toggle">
+        <input type="checkbox" ${plugin.enabled ? 'checked' : ''} data-plugin-toggle="${plugin.name}">
+        <span class="plugin-toggle-slider"></span>
+      </label>
+    </div>
+  `).join('');
+
+  pluginsList.querySelectorAll('.plugin-item').forEach(item => {
+    item.addEventListener('click', (e) => {
+      if (e.target.closest('.plugin-toggle')) return;
+      const pluginName = item.dataset.plugin;
+      const plugin = plugins.find(p => p.name === pluginName);
+      if (plugin) {
+        openPluginSettings(plugin);
+      }
+    });
+  });
+
+  pluginsList.querySelectorAll('[data-plugin-toggle]').forEach(toggle => {
+    toggle.addEventListener('change', async (e) => {
+      e.stopPropagation();
+      const pluginName = toggle.dataset.pluginToggle;
+      const plugin = plugins.find(p => p.name === pluginName);
+      
+      if (toggle.checked) {
+        if (plugin.permissions && plugin.permissions.length > 0) {
+          const config = await window.maxi.plugins.getConfig(pluginName);
+          if (!config.permissions || config.permissions.length === 0) {
+            toggle.checked = false;
+            showPluginPermissionsModal(pluginName, plugin.permissions);
+            return;
+          }
+        }
+        await window.maxi.plugins.enablePlugin(pluginName);
+        plugin.enabled = true;
+        showToast(`Plugin "${pluginName}" enabled`, 'success');
+      } else {
+        await window.maxi.plugins.disablePlugin(pluginName);
+        plugin.enabled = false;
+        showToast(`Plugin "${pluginName}" disabled`, 'info');
+      }
+    });
+  });
+}
+
+async function installPluginFromFolder() {
+  try {
+    const result = await window.maxi.plugins.installFolder();
+    if (result.success) {
+      plugins.push(result.plugin);
+      renderPluginsList();
+      showToast(`Plugin "${result.plugin.name}" installed`, 'success');
+    } else {
+      showToast(`Failed to install plugin: ${result.error}`, 'error');
+    }
+  } catch (error) {
+    showToast('Failed to install plugin', 'error');
+  }
+}
+
+pluginsInstallBtn?.addEventListener('click', installPluginFromFolder);
+
+function openPluginSettings(plugin) {
+  pluginSettingsTitle.textContent = plugin.name;
+  
+  const hasPermissions = plugin.permissions && plugin.permissions.length > 0;
+  
+  pluginSettingsContent.innerHTML = `
+    <div class="plugin-settings-header">
+      <div class="plugin-settings-icon">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <circle cx="12" cy="12" r="3"/>
+          <path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/>
+        </svg>
+      </div>
+      <div class="plugin-settings-info">
+        <h3>${escapeHtml(plugin.name)}</h3>
+        <p>Version ${plugin.version} by ${escapeHtml(plugin.author || 'Unknown')}</p>
+      </div>
+    </div>
+    ${plugin.description ? `<p class="plugin-description">${escapeHtml(plugin.description)}</p>` : ''}
+    <div class="plugin-settings-section">
+      <h4>Permissions</h4>
+      <div class="plugin-permissions-list">
+        ${hasPermissions ? plugin.permissions.map(perm => `
+          <div class="plugin-permission-item">
+            <input type="checkbox" id="perm-${perm}" data-permission="${perm}" checked disabled>
+            <label for="perm-${perm}">${perm}</label>
+          </div>
+        `).join('') : '<p style="font-size: 0.875rem; color: var(--text-muted);">No permissions required</p>'}
+      </div>
+    </div>
+  `;
+  
+  pluginSettingsModal.dataset.plugin = plugin.name;
+  pluginSettingsModal.classList.remove('hidden');
+}
+
+closePluginSettings?.addEventListener('click', () => {
+  pluginSettingsModal.classList.add('hidden');
+});
+
+pluginSettingsModal.querySelector('.modal-backdrop')?.addEventListener('click', () => {
+  pluginSettingsModal.classList.add('hidden');
+});
+
+pluginUninstallBtn?.addEventListener('click', async () => {
+  const pluginName = pluginSettingsModal.dataset.plugin;
+  if (!confirm(`Are you sure you want to uninstall "${pluginName}"?`)) {
+    return;
+  }
+  
+  try {
+    await window.maxi.plugins.uninstall(pluginName);
+    plugins = plugins.filter(p => p.name !== pluginName);
+    renderPluginsList();
+    pluginSettingsModal.classList.add('hidden');
+    showToast(`Plugin "${pluginName}" uninstalled`, 'success');
+  } catch (error) {
+    showToast('Failed to uninstall plugin', 'error');
+  }
+});
+
+pluginSaveBtn?.addEventListener('click', () => {
+  pluginSettingsModal.classList.add('hidden');
+  showToast('Plugin settings saved', 'success');
+});
+
+function showPluginPermissionsModal(pluginName, permissions) {
+  pendingPermissionRequest = { pluginName, permissions };
+  pluginPermissionsDesc.textContent = `"${pluginName}" requires the following permissions:`;
+  
+  pluginPermissionsList.innerHTML = permissions.map(perm => `
+    <div class="plugin-permission-item">
+      <input type="checkbox" id="req-perm-${perm}" data-permission="${perm}" checked>
+      <label for="req-perm-${perm}">${perm}</label>
+    </div>
+  `).join('');
+  
+  pluginPermissionsModal.classList.remove('hidden');
+}
+
+closePluginPermissions?.addEventListener('click', () => {
+  pluginPermissionsModal.classList.add('hidden');
+  pendingPermissionRequest = null;
+});
+
+pluginPermissionsCancel?.addEventListener('click', () => {
+  pluginPermissionsModal.classList.add('hidden');
+  pendingPermissionRequest = null;
+});
+
+pluginPermissionsModal.querySelector('.modal-backdrop')?.addEventListener('click', () => {
+  pluginPermissionsModal.classList.add('hidden');
+  pendingPermissionRequest = null;
+});
+
+pluginPermissionsGrant?.addEventListener('click', async () => {
+  if (!pendingPermissionRequest) return;
+  
+  const { pluginName } = pendingPermissionRequest;
+  const checkboxes = pluginPermissionsList.querySelectorAll('[data-permission]');
+  const grantedPermissions = Array.from(checkboxes)
+    .filter(cb => cb.checked)
+    .map(cb => cb.dataset.permission);
+  
+  try {
+    await window.maxi.plugins.grantPermissions(pluginName, grantedPermissions);
+    await window.maxi.plugins.enablePlugin(pluginName);
+    
+    const plugin = plugins.find(p => p.name === pluginName);
+    if (plugin) {
+      plugin.enabled = true;
+    }
+    
+    renderPluginsList();
+    pluginPermissionsModal.classList.add('hidden');
+    showToast(`Plugin "${pluginName}" enabled`, 'success');
+  } catch (error) {
+    showToast('Failed to enable plugin', 'error');
+  }
+  
+  pendingPermissionRequest = null;
+});
+
+function setupPluginPermissionListener() {
+  window.maxi.plugins.onPermissionRequest(({ pluginName, permissions }) => {
+    showPluginPermissionsModal(pluginName, permissions);
+  });
+}
 
 const saveChatBtn = document.getElementById('save-chat-btn');
 const loadChatBtn = document.getElementById('load-chat-btn');

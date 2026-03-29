@@ -57,6 +57,306 @@ const MAXI_SKILLS_PATH = path.join(process.env.HOME || process.env.USERPROFILE, 
 const MAXI_SSH_CONFIG_PATH = path.join(process.env.HOME || process.env.USERPROFILE, '.maxi', 'ssh-config.json');
 const MAXI_CHAT_HISTORY_PATH = path.join(process.env.HOME || process.env.USERPROFILE, '.maxi', 'chat-history');
 const MAXI_AUTO_SAVE_PATH = path.join(process.env.HOME || process.env.USERPROFILE, '.maxi', 'autosave.json');
+const MAXI_PLUGINS_PATH = path.join(process.env.HOME || process.env.USERPROFILE, '.maxi', 'plugins');
+const MAXI_PLUGIN_CONFIG_PATH = path.join(process.env.HOME || process.env.USERPROFILE, '.maxi', 'plugin-config.json');
+
+let loadedPlugins = new Map();
+let pluginHooks = {};
+let pluginConfig = {};
+
+function loadPluginConfig() {
+  try {
+    if (!fs.existsSync(MAXI_PLUGIN_CONFIG_PATH)) {
+      return {};
+    }
+    const data = fs.readFileSync(MAXI_PLUGIN_CONFIG_PATH, 'utf-8');
+    return JSON.parse(data);
+  } catch (error) {
+    console.error('Error loading plugin config:', error);
+    return {};
+  }
+}
+
+function savePluginConfig(config) {
+  try {
+    const dir = path.dirname(MAXI_PLUGIN_CONFIG_PATH);
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true });
+    }
+    fs.writeFileSync(MAXI_PLUGIN_CONFIG_PATH, JSON.stringify(config, null, 2));
+    return true;
+  } catch (error) {
+    console.error('Error saving plugin config:', error);
+    return false;
+  }
+}
+
+function loadPluginManifest(pluginPath) {
+  try {
+    const manifestPath = path.join(pluginPath, 'plugin.json');
+    if (!fs.existsSync(manifestPath)) {
+      return null;
+    }
+    const content = fs.readFileSync(manifestPath, 'utf-8');
+    return JSON.parse(content);
+  } catch (error) {
+    console.error(`Error loading plugin manifest from ${pluginPath}:`, error);
+    return null;
+  }
+}
+
+function loadPlugin(pluginName, pluginPath) {
+  try {
+    const manifest = loadPluginManifest(pluginPath);
+    if (!manifest) {
+      return { success: false, error: 'No plugin.json found' };
+    }
+
+    const config = pluginConfig[pluginName] || {};
+    if (!config.enabled) {
+      return { success: false, error: 'Plugin disabled' };
+    }
+
+    const mainFile = path.join(pluginPath, manifest.main || 'index.js');
+    if (!fs.existsSync(mainFile)) {
+      return { success: false, error: 'Main entry file not found' };
+    }
+
+    const pluginCode = fs.readFileSync(mainFile, 'utf-8');
+    
+    return {
+      success: true,
+      manifest,
+      config,
+      code: pluginCode
+    };
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+}
+
+function validatePluginPermissions(pluginName, requiredPermissions) {
+  const config = pluginConfig[pluginName] || {};
+  const allowed = config.permissions || [];
+  
+  for (const perm of requiredPermissions) {
+    if (!allowed.includes(perm) && !allowed.includes('*')) {
+      return false;
+    }
+  }
+  return true;
+}
+
+ipcMain.handle('plugins-load', async () => {
+  pluginConfig = loadPluginConfig();
+  
+  if (!fs.existsSync(MAXI_PLUGINS_PATH)) {
+    fs.mkdirSync(MAXI_PLUGINS_PATH, { recursive: true });
+    return [];
+  }
+
+  try {
+    const pluginDirs = fs.readdirSync(MAXI_PLUGINS_PATH, { withFileTypes: true });
+    const plugins = [];
+
+    for (const dir of pluginDirs) {
+      if (!dir.isDirectory()) continue;
+
+      const pluginName = dir.name;
+      const pluginPath = path.join(MAXI_PLUGINS_PATH, pluginName);
+      const manifest = loadPluginManifest(pluginPath);
+
+      if (!manifest) continue;
+
+      const config = pluginConfig[pluginName] || { enabled: false, permissions: [] };
+      
+      plugins.push({
+        name: pluginName,
+        version: manifest.version || '1.0.0',
+        description: manifest.description || '',
+        author: manifest.author || 'Unknown',
+        main: manifest.main || 'index.js',
+        permissions: manifest.permissions || [],
+        hooks: manifest.hooks || {},
+        enabled: config.enabled || false,
+        configuredPermissions: config.permissions || []
+      });
+    }
+
+    return plugins;
+  } catch (error) {
+    console.error('Error loading plugins:', error);
+    return [];
+  }
+});
+
+ipcMain.handle('plugins-enable', async (event, pluginName) => {
+  if (!pluginConfig[pluginName]) {
+    pluginConfig[pluginName] = {};
+  }
+  pluginConfig[pluginName].enabled = true;
+  savePluginConfig(pluginConfig);
+  return { success: true };
+});
+
+ipcMain.handle('plugins-disable', async (event, pluginName) => {
+  if (!pluginConfig[pluginName]) {
+    pluginConfig[pluginName] = {};
+  }
+  pluginConfig[pluginName].enabled = false;
+  savePluginConfig(pluginConfig);
+  return { success: true };
+});
+
+ipcMain.handle('plugins-get-config', async (event, pluginName) => {
+  const config = pluginConfig[pluginName] || {};
+  return config;
+});
+
+ipcMain.handle('plugins-set-config', async (event, { pluginName, config }) => {
+  if (!pluginConfig[pluginName]) {
+    pluginConfig[pluginName] = {};
+  }
+  pluginConfig[pluginName] = { ...pluginConfig[pluginName], ...config };
+  savePluginConfig(pluginConfig);
+  return { success: true };
+});
+
+ipcMain.handle('plugins-uninstall', async (event, pluginName) => {
+  try {
+    const pluginPath = path.join(MAXI_PLUGINS_PATH, pluginName);
+    if (fs.existsSync(pluginPath)) {
+      fs.rmSync(pluginPath, { recursive: true, force: true });
+    }
+    delete pluginConfig[pluginName];
+    savePluginConfig(pluginConfig);
+    return { success: true };
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('plugins-install-folder', async () => {
+  const result = await dialog.showOpenDialog(mainWindow, {
+    properties: ['openDirectory'],
+    title: 'Select Plugin Folder'
+  });
+  
+  if (result.canceled || !result.filePaths[0]) {
+    return { success: false, error: 'No folder selected' };
+  }
+
+  const sourcePath = result.filePaths[0];
+  const pluginName = path.basename(sourcePath);
+  const destPath = path.join(MAXI_PLUGINS_PATH, pluginName);
+
+  try {
+    if (fs.existsSync(destPath)) {
+      return { success: false, error: 'Plugin already installed' };
+    }
+
+    fs.mkdirSync(destPath, { recursive: true });
+    
+    const files = fs.readdirSync(sourcePath);
+    for (const file of files) {
+      const srcFile = path.join(sourcePath, file);
+      const destFile = path.join(destPath, file);
+      fs.copyFileSync(srcFile, destFile);
+    }
+
+    const manifest = loadPluginManifest(destPath);
+    if (!manifest) {
+      fs.rmSync(destPath, { recursive: true, force: true });
+      return { success: false, error: 'No plugin.json found in folder' };
+    }
+
+    if (!pluginConfig[pluginName]) {
+      pluginConfig[pluginName] = { enabled: false, permissions: [] };
+    }
+    savePluginConfig(pluginConfig);
+
+    return {
+      success: true,
+      plugin: {
+        name: pluginName,
+        version: manifest.version || '1.0.0',
+        description: manifest.description || '',
+        author: manifest.author || 'Unknown',
+        main: manifest.main || 'index.js',
+        permissions: manifest.permissions || [],
+        hooks: manifest.hooks || {},
+        enabled: false,
+        configuredPermissions: []
+      }
+    };
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('plugins-read-file', async (event, { pluginName, filePath }) => {
+  const config = pluginConfig[pluginName] || {};
+  if (!config.enabled) {
+    return { error: 'Plugin not enabled' };
+  }
+  if (!config.permissions.includes('filesystem') && !config.permissions.includes('*')) {
+    return { error: 'Permission denied: filesystem' };
+  }
+
+  try {
+    const safePath = path.join(MAXI_PLUGINS_PATH, pluginName, filePath);
+    const normalizedPath = path.normalize(safePath);
+    if (!normalizedPath.startsWith(path.join(MAXI_PLUGINS_PATH, pluginName))) {
+      return { error: 'Invalid path' };
+    }
+    
+    if (!fs.existsSync(normalizedPath)) {
+      return { error: 'File not found' };
+    }
+    
+    const content = fs.readFileSync(normalizedPath, 'utf-8');
+    return { content };
+  } catch (error) {
+    return { error: error.message };
+  }
+});
+
+ipcMain.handle('plugins-write-file', async (event, { pluginName, filePath, content }) => {
+  const config = pluginConfig[pluginName] || {};
+  if (!config.enabled) {
+    return { error: 'Plugin not enabled' };
+  }
+  if (!config.permissions.includes('filesystem') && !config.permissions.includes('*')) {
+    return { error: 'Permission denied: filesystem' };
+  }
+
+  try {
+    const safePath = path.join(MAXI_PLUGINS_PATH, pluginName, filePath);
+    const normalizedPath = path.normalize(safePath);
+    if (!normalizedPath.startsWith(path.join(MAXI_PLUGINS_PATH, pluginName))) {
+      return { error: 'Invalid path' };
+    }
+    
+    fs.writeFileSync(normalizedPath, content, 'utf-8');
+    return { success: true };
+  } catch (error) {
+    return { error: error.message };
+  }
+});
+
+ipcMain.handle('plugins-request-permissions', async (event, { pluginName, permissions }) => {
+  mainWindow.webContents.send('plugin-permission-request', { pluginName, permissions });
+  return { success: true };
+});
+
+ipcMain.handle('plugins-grant-permissions', async (event, { pluginName, permissions }) => {
+  if (!pluginConfig[pluginName]) {
+    pluginConfig[pluginName] = {};
+  }
+  pluginConfig[pluginName].permissions = permissions;
+  savePluginConfig(pluginConfig);
+  return { success: true };
+});
 
 let sshClient = null;
 let currentSshConnection = null;

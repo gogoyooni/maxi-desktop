@@ -123,6 +123,13 @@
             </svg>
             SSH
           </button>
+          <button class="sidebar-tab" data-tab="plugins">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <circle cx="12" cy="12" r="3"/>
+              <path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/>
+            </svg>
+            Plugins
+          </button>
         </div>
 
         <div id="files-panel" class="sidebar-panel active">
@@ -187,6 +194,20 @@
           <div class="terminal-wrapper" id="ssh-terminal-wrapper">
             <div id="ssh-terminal-container"></div>
           </div>
+        </div>
+
+        <div id="plugins-panel" class="sidebar-panel">
+          <div class="panel-header">
+            <span>Plugins</span>
+            <button id="plugins-install-btn" class="icon-btn small" title="Install from folder">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                <polyline points="7 10 12 15 17 10"/>
+                <line x1="12" y1="15" x2="12" y2="3"/>
+              </svg>
+            </button>
+          </div>
+          <div id="plugins-list" class="plugins-list"></div>
         </div>
       </aside>
 
@@ -693,6 +714,51 @@
         </div>
         <div class="modal-footer">
           <button id="share-done" class="btn primary">Done</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="plugin-settings-modal" class="modal hidden">
+      <div class="modal-backdrop"></div>
+      <div class="modal-content plugin-settings-modal-content">
+        <div class="modal-header">
+          <h2 id="plugin-settings-title">Plugin Settings</h2>
+          <button id="close-plugin-settings" class="icon-btn">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <line x1="18" y1="6" x2="6" y2="18"/>
+              <line x1="6" y1="6" x2="18" y2="18"/>
+            </svg>
+          </button>
+        </div>
+        <div class="modal-body">
+          <div id="plugin-settings-content" class="plugin-settings-content"></div>
+        </div>
+        <div class="modal-footer">
+          <button id="plugin-uninstall-btn" class="btn danger">Uninstall</button>
+          <button id="plugin-save-btn" class="btn primary">Save</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="plugin-permissions-modal" class="modal hidden">
+      <div class="modal-backdrop"></div>
+      <div class="modal-content plugin-permissions-modal-content">
+        <div class="modal-header">
+          <h2>Plugin Permissions</h2>
+          <button id="close-plugin-permissions" class="icon-btn">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <line x1="18" y1="6" x2="6" y2="18"/>
+              <line x1="6" y1="6" x2="18" y2="18"/>
+            </svg>
+          </button>
+        </div>
+        <div class="modal-body">
+          <p id="plugin-permissions-desc" class="plugin-permissions-desc"></p>
+          <div id="plugin-permissions-list" class="plugin-permissions-list"></div>
+        </div>
+        <div class="modal-footer">
+          <button id="plugin-permissions-cancel" class="btn secondary">Cancel</button>
+          <button id="plugin-permissions-grant" class="btn primary">Grant Permissions</button>
         </div>
       </div>
     </div>
