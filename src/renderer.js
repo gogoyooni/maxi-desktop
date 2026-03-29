@@ -1,4 +1,8 @@
 import './index.css';
+import { Terminal } from 'xterm';
+import { FitAddon } from 'xterm-addon-fit';
+import { WebLinksAddon } from 'xterm-addon-web-links';
+import 'xterm/css/xterm.css';
 
 let tokens = {};
 let skills = [];
@@ -75,6 +79,15 @@ const recordingTimerEl = document.getElementById('recording-timer');
 const transcriptionPreview = document.getElementById('transcription-preview');
 const stopRecordingBtn = document.getElementById('stop-recording-btn');
 const cancelRecordingBtn = document.getElementById('cancel-recording-btn');
+
+let terminal = null;
+let terminalFitAddon = null;
+let terminalInitialized = false;
+let commandHistory = [];
+let commandHistoryIndex = -1;
+let currentCommand = '';
+let terminalHeight = 200;
+let isResizing = false;
 
 function initSpeechRecognition() {
   const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -506,6 +519,215 @@ function showMCPServers() {
   `;
 }
 
+function initTerminal() {
+  if (terminalInitialized) return;
+  
+  const terminalContainer = document.getElementById('terminal-container');
+  if (!terminalContainer) return;
+  
+  terminal = new Terminal({
+    cursorBlink: true,
+    cursorStyle: 'block',
+    fontFamily: "'Fira Code', Consolas, Monaco, monospace",
+    fontSize: 13,
+    theme: {
+      background: '#0d1117',
+      foreground: '#e0e0e0',
+      cursor: '#39d353',
+      cursorAccent: '#0d1117',
+      selection: 'rgba(57, 211, 83, 0.3)',
+      black: '#0d1117',
+      red: '#ff7b72',
+      green: '#39d353',
+      yellow: '#d29922',
+      blue: '#58a6ff',
+      magenta: '#bc8cff',
+      cyan: '#39c5cf',
+      white: '#e0e0e0',
+      brightBlack: '#6e7681',
+      brightRed: '#ffa198',
+      brightGreen: '#56d364',
+      brightYellow: '#e3b341',
+      brightBlue: '#79c0ff',
+      brightMagenta: '#d2a8ff',
+      brightCyan: '#56d4dd',
+      brightWhite: '#ffffff'
+    },
+    scrollback: 1000,
+    allowProposedApi: true
+  });
+  
+  terminalFitAddon = new FitAddon();
+  const webLinksAddon = new WebLinksAddon();
+  
+  terminal.loadAddon(terminalFitAddon);
+  terminal.loadAddon(webLinksAddon);
+  
+  terminal.open(terminalContainer);
+  terminalFitAddon.fit();
+  
+  const dimensions = terminalFitAddon.proposeDimensions();
+  if (dimensions) {
+    terminal.resize(dimensions.cols, dimensions.rows);
+    document.getElementById('terminal-dimensions').textContent = `${dimensions.cols}x${dimensions.rows}`;
+  }
+  
+  terminalInitializePTy();
+  
+  terminal.onData((data) => {
+    window.maxi.writeTerminal(data);
+  });
+  
+  terminal.onResize(({ cols, rows }) => {
+    window.maxi.resizeTerminal({ cols, rows });
+    document.getElementById('terminal-dimensions').textContent = `${cols}x${rows}`;
+  });
+  
+  terminal.keyboard.onKey((event) => {
+    if (event.key === 'ArrowUp') {
+      navigateHistory(-1);
+      event.domEvent.preventDefault();
+    } else if (event.key === 'ArrowDown') {
+      navigateHistory(1);
+      event.domEvent.preventDefault();
+    } else if (event.key === 'Tab') {
+      handleTabComplete();
+      event.domEvent.preventDefault();
+    } else if (event.key === 'c' && event.ctrlKey) {
+    } else if (event.key === 'v' && event.ctrlKey) {
+    }
+  });
+  
+  const clearBtn = document.getElementById('terminal-clear');
+  if (clearBtn) {
+    clearBtn.addEventListener('click', () => {
+      terminal.clear();
+    });
+  }
+  
+  const copyBtn = document.getElementById('terminal-copy');
+  if (copyBtn) {
+    copyBtn.addEventListener('click', () => {
+      const selection = terminal.getSelection();
+      if (selection) {
+        navigator.clipboard.writeText(selection);
+        showToast('Copied to clipboard', 'success');
+      }
+    });
+  }
+  
+  setupTerminalResize();
+  
+  terminalInitialized = true;
+  
+  window.maxi.onTerminalData((data) => {
+    if (terminal) {
+      terminal.write(data);
+    }
+  });
+  
+  window.maxi.onTerminalExit((exitCode) => {
+    if (terminal) {
+      terminal.write(`\r\n[Process exited with code ${exitCode}]\r\n`);
+    }
+  });
+}
+
+async function terminalInitializePTy() {
+  const dimensions = terminalFitAddon?.proposeDimensions();
+  await window.maxi.createTerminal({
+    cols: dimensions?.cols || 80,
+    rows: dimensions?.rows || 24
+  });
+}
+
+function navigateHistory(direction) {
+  if (commandHistory.length === 0) return;
+  
+  if (commandHistoryIndex === -1) {
+    currentCommand = terminal.buffer.active.buffer.getLine(terminal.buffer.active.cursorY)?.translateToString() || '';
+  }
+  
+  const newIndex = commandHistoryIndex + direction;
+  
+  if (newIndex < -1) return;
+  if (newIndex >= commandHistory.length) return;
+  
+  if (commandHistoryIndex === -1 && direction === -1) {
+    commandHistoryIndex = commandHistory.length - 1;
+  } else {
+    commandHistoryIndex = Math.max(-1, Math.min(commandHistory.length - 1, newIndex));
+  }
+  
+  const currentLine = terminal.buffer.active.cursorY;
+  terminal.buffer.active.buffer.getLine(currentLine)?.reset();
+  
+  if (commandHistoryIndex === -1) {
+    terminal.write(currentCommand);
+  } else {
+    terminal.write(commandHistory[commandHistory.length - 1 - commandHistoryIndex]);
+  }
+}
+
+function handleTabComplete() {
+  const currentLine = terminal.buffer.active.cursorY;
+  const lineContent = terminal.buffer.active.buffer.getLine(currentLine)?.translateToString() || '';
+  const parts = lineContent.trim().split(' ');
+  
+  if (parts.length === 1) {
+    const partial = parts[0];
+    const commands = ['ls', 'cd', 'pwd', 'mkdir', 'rm', 'cp', 'mv', 'cat', 'grep', 'find', 'chmod', 'chown', 'sudo', 'npm', 'git', 'node', 'python', 'clear', 'exit', 'echo', 'touch', 'vim', 'nano', 'ssh', 'curl', 'wget', 'tar', 'zip', 'unzip'];
+    const matches = commands.filter(cmd => cmd.startsWith(partial));
+    if (matches.length === 1) {
+      const completion = matches[0].slice(partial.length);
+      terminal.write(completion);
+    } else if (matches.length > 1) {
+      terminal.write('\r\n');
+      matches.forEach(cmd => terminal.write(cmd + '  '));
+      terminal.write('\r\n');
+      terminal.write(lineContent);
+    }
+  }
+}
+
+function setupTerminalResize() {
+  const resizeHandle = document.querySelector('.terminal-resize-handle');
+  const terminalContainer = document.getElementById('terminal-container');
+  const terminalPanel = document.getElementById('terminal-panel');
+  
+  if (!resizeHandle || !terminalContainer || !terminalPanel) return;
+  
+  resizeHandle.addEventListener('mousedown', (e) => {
+    isResizing = true;
+    e.preventDefault();
+  });
+  
+  document.addEventListener('mousemove', (e) => {
+    if (!isResizing) return;
+    
+    const panelRect = terminalPanel.getBoundingClientRect();
+    const newHeight = panelRect.bottom - e.clientY;
+    terminalHeight = Math.max(150, Math.min(500, newHeight));
+    terminalContainer.style.height = `${terminalHeight}px`;
+    if (terminalFitAddon) {
+      terminalFitAddon.fit();
+    }
+  });
+  
+  document.addEventListener('mouseup', () => {
+    if (isResizing) {
+      isResizing = false;
+      if (terminalFitAddon) {
+        terminalFitAddon.fit();
+        const dimensions = terminalFitAddon.proposeDimensions();
+        if (dimensions) {
+          window.maxi.resizeTerminal({ cols: dimensions.cols, rows: dimensions.rows });
+        }
+      }
+    }
+  });
+}
+
 function parseMarkdown(text) {
   let html = text;
   
@@ -806,6 +1028,19 @@ sidebarTabs.forEach(tab => {
     sidebarPanels.forEach(p => {
       p.classList.toggle('active', p.id === `${tabName}-panel`);
     });
+    if (tabName === 'terminal' && !terminalInitialized) {
+      setTimeout(initTerminal, 100);
+    }
+    if (tabName === 'terminal' && terminalFitAddon) {
+      setTimeout(() => {
+        terminalFitAddon.fit();
+        const dimensions = terminalFitAddon.proposeDimensions();
+        if (dimensions) {
+          terminal.resize(dimensions.cols, dimensions.rows);
+          window.maxi.resizeTerminal({ cols: dimensions.cols, rows: dimensions.rows });
+        }
+      }, 150);
+    }
   });
 });
 

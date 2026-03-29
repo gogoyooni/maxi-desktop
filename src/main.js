@@ -5,6 +5,7 @@ const https = require('node:https');
 const os = require('node:os');
 const { spawn } = require('child_process');
 const vm = require('vm');
+const nodePty = require('node-pty');
 
 if (require('electron-squirrel-startup')) {
   app.quit();
@@ -303,6 +304,7 @@ ipcMain.handle('stream-chat', async (event, { messages, apiKey, model }) => {
 });
 
 const runningProcesses = new Map();
+let terminalPty = null;
 
 const EXECUTION_TIMEOUT = 30000;
 
@@ -531,6 +533,69 @@ ipcMain.handle('stop-execution', (event, executionId) => {
     proc.kill();
     runningProcesses.delete(executionId);
     return true;
+  }
+  return false;
+});
+
+ipcMain.handle('create-terminal', (event, { cols, rows }) => {
+  if (terminalPty) {
+    try {
+      terminalPty.kill();
+    } catch (e) {}
+  }
+  
+  const shell = process.platform === 'win32' ? 'powershell.exe' : 'bash';
+  const shellArgs = process.platform === 'win32' ? [] : ['--login'];
+  
+  terminalPty = nodePty.spawn(shell, shellArgs, {
+    name: 'xterm-256color',
+    cols: cols || 80,
+    rows: rows || 24,
+    cwd: os.homedir(),
+    env: process.env
+  });
+  
+  terminalPty.onData((data) => {
+    mainWindow.webContents.send('terminal-data', data);
+  });
+  
+  terminalPty.onExit(({ exitCode }) => {
+    mainWindow.webContents.send('terminal-exit', exitCode);
+    terminalPty = null;
+  });
+  
+  return { success: true };
+});
+
+ipcMain.handle('write-terminal', (event, data) => {
+  if (terminalPty) {
+    terminalPty.write(data);
+    return true;
+  }
+  return false;
+});
+
+ipcMain.handle('resize-terminal', (event, { cols, rows }) => {
+  if (terminalPty) {
+    try {
+      terminalPty.resize(cols, rows);
+      return true;
+    } catch (e) {
+      return false;
+    }
+  }
+  return false;
+});
+
+ipcMain.handle('kill-terminal', () => {
+  if (terminalPty) {
+    try {
+      terminalPty.kill();
+      terminalPty = null;
+      return true;
+    } catch (e) {
+      return false;
+    }
   }
   return false;
 });
